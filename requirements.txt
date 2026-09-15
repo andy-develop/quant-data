@@ -1,0 +1,6 @@
+# 数据仓库运行依赖（GitHub Actions + 本地沙箱统一使用）
+pandas>=2.2
+pyarrow>=16
+duckdb>=1.0
+requests>=2.31
+numpy>=1.26

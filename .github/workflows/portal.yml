@@ -1,0 +1,191 @@
+name: Portal Pipeline (12:00 Beijing)
+
+# 门户流水线：工作日 12:00 开始更新整个页面，14:00 前出网页端结果。
+#   fetch_index(截至 T-1 完整收盘) -> fetch_etf -> fetch_snapshot(11:30 上午实时)
+#   -> build_factors(因子中间层,不入库) -> gen_payload(hl/hs300/sector/stock/morning)
+#   -> build_portal(index.html) -> 提交 data 增量 -> 发布 HSK 文件托管
+#
+# 口径：A股日K 15:00 收盘后才产生完整 bar -> 策略信号基于 T-1 完整收盘；
+# "当天上午结果"= 11:30 实时快照（morning 段，T-1 信号 + 上午实时双轨展示）。
+# 16:35 的 mirror 任务会把今日完整收盘 K 线镜像入库，本任务增量多为 no-op（幂等）。
+
+on:
+  schedule:
+    # 北京时间 12:00 = UTC 04:00（GitHub schedule 用 UTC；负载高时可能延迟数分钟，
+    # 45min timeout + 幂等增量设计保证不丢数据）
+    - cron: "0 4 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: portal-pipeline
+  cancel-in-progress: false
+
+jobs:
+  portal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: quant-data
+    steps:
+      - name: Checkout quant-data
+        uses: actions/checkout@v4
+        with:
+          path: quant-data
+
+      # gen_payload.py 依赖 red-dividend-strategy 引擎（backtest/engine.py v7.12 + update.py
+      # + sector_*），且路径约定为 sibling（quant-data/../red-dividend-strategy）
+      - name: Checkout red-dividend-strategy (engine sibling)
+        uses: actions/checkout@v4
+        with:
+          repository: andy-develop/red-dividend-strategy
+          path: red-dividend-strategy
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Fetch index daily bars (T-1 complete close)
+        run: python3 scripts/fetch_index.py
+
+      - name: Fetch ETF daily bars (Tencent channel)
+        # 东财对 GitHub runner IP 连接级限流（实测 2 轮重试仅 15/32），CI 直连腾讯通道
+        env:
+          PREFER_TX: "1"
+        run: python3 scripts/fetch_etf.py
+
+      - name: Fetch morning snapshot (11:30 realtime)
+        # 快照失败不阻断整条流水线（morning 段回退到昨日快照，7 天保留）
+        run: python3 scripts/fetch_snapshot.py || echo "::warning::快照抓取失败，morning 段将使用最近快照"
+
+      - name: Build factor layer (deterministic, gitignored)
+        run: python3 scripts/build_factors.py
+
+      - name: Build payloads (hl/hs300/sector/stock/morning)
+        run: python3 scripts/gen_payload.py
+
+      - name: Build portal index.html
+        run: python3 portal/build_portal.py
+
+      - name: Commit data increments
+        run: |
+          git config user.name "quant-data-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/ scripts/ requirements.txt
+          if git diff --cached --quiet; then
+            echo "无新增变更，跳过 commit"
+          else
+            git commit -m "chore(data): portal pipeline $(date -u +%Y-%m-%d)"
+            git push
+          fi
+
+      - name: Publish to HSK file hosting (overwrite)
+        working-directory: quant-data/portal
+        run: |
+          npm install -g @aweray/hsk-cli >/dev/null 2>&1
+          export PATH="$PATH:$(npm prefix -g)/bin"
+          hsk-cli api-key set --scene file_hosting --key "$HSK_API_KEY" >/dev/null 2>&1
+          # 无变化跳过发布：data_date（hl|sector|hs300）+ 归一化内容指纹与已发布版本一致时跳过
+          NEED_PUBLISH=$(python3 - <<'EOF'
+          import json, os, re, hashlib
+          raw = open("index.html", "rb").read()
+          norm = re.sub(rb'"generated_at"\s*:\s*"[^"]*"', b'"generated_at":""', raw)
+          sha = hashlib.sha256(norm).hexdigest()
+          m = re.search(rb'<script id="PAYLOAD" type="application/json">(.*?)</script>', raw, re.S)
+          payload = json.loads(m.group(1)) if m else {}
+          dd = f"{payload.get('snapshot', {}).get('data_date')}|{payload.get('sector', {}).get('data_date')}|{payload.get('hs300', {}).get('snapshot', {}).get('data_date')}"
+          print("本次构建 data_date:", dd, "/ content_sha:", sha[:12])
+          skip = False
+          if os.path.exists("../data/hsk-resource.json"):
+              old = json.load(open("../data/hsk-resource.json", encoding="utf-8"))
+              if old.get("data_date") == dd and old.get("content_sha") == sha:
+                  print(f"数据与页面结构均未变化，跳过发布（复用 {old.get('url')}）")
+                  skip = True
+          print("YES" if skip else "NO")
+          EOF
+          )
+          if [ "$(echo "$NEED_PUBLISH" | tail -1)" = "YES" ]; then echo "跳过发布"; exit 0; fi
+          # 复用已持久化的资源（首次运行且未配 HSK_RESOURCE_ID 时自动创建新资源）
+          RES_ID="${HSK_RESOURCE_ID:-}"
+          if [ -f ../data/hsk-resource.json ]; then
+            RES_ID=$(python3 -c "import json; print(json.load(open('../data/hsk-resource.json'))['resource_id'])" 2>/dev/null) || true
+            echo "复用持久化资源: $RES_ID"
+          fi
+          # set -e 陷阱：hsk-cli 403 时退出码非 0，必须 || true 保住后续 fallback
+          out=$(hsk-cli +host index.html --resource-id "$RES_ID" --format json 2>&1) || true; echo "$out"
+          if echo "$out" | grep -q '11301002\|update function is disabled'; then
+            echo "== 资源更新被禁用（403 11301002），创建新资源 =="
+            out=$(hsk-cli host index.html --api-key "$HSK_API_KEY" --format json 2>&1) || true; echo "$out"
+          fi
+          # 解析并持久化资源 ID/URL（新资源或成功更新均可）
+          echo "$out" > /tmp/hsk-out.txt || true
+          python3 - <<'EOF'
+          import json, os, re, hashlib
+          out = open("/tmp/hsk-out.txt", encoding="utf-8").read()
+          um = re.search(r'public_?url["\']?\s*[:=]\s*["\'](https?://[^"\']+)', out, re.I)
+          if not um:
+              um = re.search(r'https?://[^\s"\'\\]+', out)
+          rid = re.search(r'resource[_-]?id["\']?\s*[:=]\s*["\']?(\d+)', out, re.I)
+          rec = {}
+          if um: rec["url"] = um.group(1) if um.lastindex else um.group(0).rstrip('",)}')
+          if rid: rec["resource_id"] = rid.group(1)
+          payload = json.loads(re.search(r'<script id="PAYLOAD" type="application/json">(.*?)</script>', open("index.html", encoding="utf-8").read(), re.S).group(1))
+          rec["data_date"] = f"{payload.get('snapshot', {}).get('data_date')}|{payload.get('sector', {}).get('data_date')}|{payload.get('hs300', {}).get('snapshot', {}).get('data_date')}"
+          rec["content_sha"] = hashlib.sha256(re.sub(rb'"generated_at"\s*:\s*"[^"]*"', b'"generated_at":""', open("index.html", "rb").read())).hexdigest()
+          if not rec.get("url") or not rec.get("resource_id"):
+              raise SystemExit(f"无法从 hsk-cli 输出解析资源 URL/ID: {out[:400]}")
+          if os.path.exists("../data/hsk-resource.json"):
+              old = json.load(open("../data/hsk-resource.json", encoding="utf-8"))
+              if old.get("url") == rec.get("url") and old.get("resource_id") == rec.get("resource_id"):
+                  print("资源未变化:", rec.get("url"))
+                  raise SystemExit(0)
+          json.dump(rec, open("../data/hsk-resource.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+          print("持久化资源:", rec)
+          EOF
+          cd ..
+          git add data/hsk-resource.json
+          git -c user.name="quant-data-bot" -c user.email="actions@users.noreply.github.com" commit -m "chore(hsk): persist portal resource [skip ci]" -q && git push -q origin HEAD && echo "资源记录已提交" || echo "资源记录无变化/无需提交"
+        env:
+          HSK_API_KEY: ${{ secrets.HSK_API_KEY }}
+          HSK_RESOURCE_ID: ${{ secrets.HSK_RESOURCE_ID }}
+
+      - name: Verify published page is the new build
+        # 发布后验证：线上 PAYLOAD 的 data_date（hl/sector/hs300）必须与本地一致，否则红
+        run: |
+          python3 - <<'EOF'
+          import json, os, re, urllib.request
+          url = "https://945q5w.gicp.fun"
+          if os.path.exists("data/hsk-resource.json"):
+              rec = json.load(open("data/hsk-resource.json", encoding="utf-8"))
+              url = rec.get("url", url)
+          print(f"线上地址: {url}")
+          local = json.loads(re.search(r'<script id="PAYLOAD" type="application/json">(.*?)</script>', open("portal/index.html", encoding="utf-8").read(), re.S).group(1))
+          with urllib.request.urlopen(url, timeout=30) as r:
+              html = r.read().decode("utf-8", "ignore")
+          m = re.search(r'<script id="PAYLOAD" type="application/json">(.*?)</script>', html, re.S)
+          online = json.loads(m.group(1)) if m else {}
+          checks = [("snapshot", "红利低波"), ("sector", "行业轮动")]
+          ok = True
+          for key, label in checks:
+              lv = local.get(key, {}).get("data_date")
+              ov = online.get(key, {}).get("data_date")
+              print(f"{label} data_date: 本地 {lv} / 线上 {ov}")
+              if lv != ov:
+                  ok = False
+          lh = local.get("hs300", {}).get("snapshot", {}).get("data_date")
+          oh = online.get("hs300", {}).get("snapshot", {}).get("data_date")
+          print(f"沪深300 data_date: 本地 {lh} / 线上 {oh}")
+          if lh != oh:
+              ok = False
+          if not ok:
+              raise SystemExit("发布验证失败：线上数据未更新（对比上方 data_date）")
+          print("发布验证通过：线上已是本次数据（红利低波 + 行业轮动 + 沪深300）")
+          EOF

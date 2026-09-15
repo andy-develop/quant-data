@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# 本地运行垃圾
+default.profraw
+*.log
+
+# 临时文件（抓取/合并中间产物，不入库）
+data/.tmp/
+data/payload/.pending/
+
+# 因子层是确定性中间产物（由 kline 重算），不入库以控制仓库体积
+data/factors/
+
+# 构建产物（门户 index.html 在发布分支/构建时生成；main 分支不存）
+portal/index.html

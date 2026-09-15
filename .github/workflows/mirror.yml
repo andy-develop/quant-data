@@ -1,0 +1,60 @@
+name: Mirror Close Data (16:35 Beijing)
+
+# 收盘数据镜像：工作日 16:35（收盘 15:00 后 1.5h）把当日完整收盘 K 线入库，
+# 供次日 12:00 门户流水线直接使用（T-1 完整收盘口径）。
+#   fetch_index(当日完整收盘) -> fetch_etf -> housekeeping(3y/13y 滚动保留) -> commit
+# 节假日自动空转：无新增则跳过 commit，不产生噪音提交。
+
+on:
+  schedule:
+    # 北京时间 16:35 = UTC 08:35（GitHub schedule 用 UTC）
+    - cron: "35 8 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mirror-close
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Fetch index daily bars (today complete close)
+        # last_complete_day(): >= 15:30 北京取今日；CSIndex 收盘后发布当日值
+        run: python3 scripts/fetch_index.py
+
+      - name: Fetch ETF daily bars (Tencent channel)
+        # 东财对 GitHub runner IP 连接级限流，CI 直连腾讯通道
+        env:
+          PREFER_TX: "1"
+        run: python3 scripts/fetch_etf.py
+
+      - name: Housekeeping (rolling retention 3y/13y + volume report)
+        run: python3 scripts/housekeeping.py
+
+      - name: Commit increments
+        run: |
+          git config user.name "quant-data-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "无新增变更（节假日/无增量），跳过 commit"
+          else
+            git commit -m "chore(data): mirror close data $(date -u +%Y-%m-%d)"
+            git push
+          fi

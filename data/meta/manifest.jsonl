@@ -1,0 +1,25 @@
+{"event": "migrate", "at": "2026-09-14 17:26", "qlab": "data", "rdd": "red-dividend-strategy"}
+{"event": "fetch_snapshot", "at": "2026-09-14 17:28", "day": "20260914", "etf": 0, "index": 4}
+{"event": "fetch_index", "at": "2026-09-14 17:36", "backfill": true}
+{"event": "fetch_index", "at": "2026-09-14 17:38", "backfill": true}
+{"event": "fetch_etf", "at": "2026-09-14 17:44"}
+{"event": "fetch_etf", "at": "2026-09-14 17:49"}
+{"event": "fetch_etf", "at": "2026-09-14 17:50"}
+{"event": "fetch_snapshot", "at": "2026-09-14 17:51", "day": "20260914", "etf": 0, "index": 4}
+{"event": "fetch_snapshot", "at": "2026-09-14 17:51", "day": "20260914", "etf": 1, "index": 5}
+{"event": "fetch_snapshot", "at": "2026-09-14 17:52", "day": "20260914", "etf": 1, "index": 5}
+{"event": "fetch_snapshot", "at": "2026-09-14 17:52", "day": "20260914", "etf": 32, "index": 5}
+{"event": "build_factors", "at": "2026-09-14 18:00", "stock_rows": 3532335}
+{"event": "build_factors", "at": "2026-09-14 18:01", "stock_rows": 3532335}
+{"event": "gen_payload", "at": "2026-09-14 18:07", "hl_last": "2026-09-11", "hs300_last": "2026-09-11"}
+{"event": "gen_payload", "at": "2026-09-14 18:08", "hl_last": "2026-09-11", "hs300_last": "2026-09-11"}
+{"event": "gen_payload", "at": "2026-09-14 18:09", "hl_last": "2026-09-11", "hs300_last": "2026-09-11"}
+{"event": "housekeeping", "at": "2026-09-15 08:02", "data_mb": 435.2}
+{"event": "fetch_index", "at": "2026-09-15 08:04", "backfill": true}
+{"event": "housekeeping", "at": "2026-09-15 08:04", "data_mb": 435.3}
+{"event": "gen_payload", "at": "2026-09-15 08:04", "hl_last": "2026-09-14", "hs300_last": "2026-09-14"}
+{"event": "fetch_index", "at": "2026-09-15 08:11", "backfill": false}
+{"event": "fetch_etf", "at": "2026-09-15 08:11"}
+{"event": "fetch_snapshot", "at": "2026-09-15 08:11", "day": "20260915", "etf": 32, "index": 5}
+{"event": "build_factors", "at": "2026-09-15 08:11", "stock_rows": 3527566}
+{"event": "gen_payload", "at": "2026-09-15 08:11", "hl_last": "2026-09-14", "hs300_last": "2026-09-14"}
