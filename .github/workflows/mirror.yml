@@ -10,6 +10,12 @@ on:
     # 北京时间 16:35 = UTC 08:35（GitHub schedule 用 UTC）
     - cron: "35 8 * * 1-5"
   workflow_dispatch:
+    inputs:
+      STOCK_LIMIT:
+        description: "fetch_stock --limit（探针/分片重试；留空=全市场）"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -48,7 +54,14 @@ jobs:
         # 双通道防 WAF：raw 走 qt.gtimg.cn 批量快照（全市场约 90 请求）；hfq 走
         # ifzq.gtimg.cn 逐股（全局限速 ~2.5 QPS，约 35 分钟）。只写日增量小文件，
         # 每周一由 housekeeping --compact 并入年份分片（控制 git 历史膨胀）。
-        run: python3 scripts/fetch_stock.py
+        # ⚠️ 腾讯 WAF 按 IP 封禁：CI runner 偶发整段被封（连续 8 次失败×3 轮自动中止）。
+        # 失败不阻断镜像（index/etf/housekeeping/commit 照常），缺口由次日/portal 兜底。
+        env:
+          STOCK_LIMIT: ${{ inputs.STOCK_LIMIT || '' }}
+        run: |
+          EXTRA=""
+          if [ -n "$STOCK_LIMIT" ]; then EXTRA="--limit $STOCK_LIMIT"; fi
+          python3 scripts/fetch_stock.py $EXTRA || echo "::warning::股票抓取被风控或失败，当日股票增量缺口由后续运行补齐"
 
       - name: Housekeeping (rolling retention; compact stock shards on Monday)
         # 周一把股票日增量并入年份分片并清理增量（控制 git 历史膨胀），其余天只做保留检查
