@@ -40,3 +40,7 @@
 {"event": "fetch_stock", "at": "2026-09-15 11:19", "batch": 0, "fq": 60, "ok": 58, "fail": 2, "sec": 27, "end": "2026-09-14"}
 {"event": "fetch_stock", "at": "2026-09-15 11:29", "batch": 0, "fq": 2, "ok": 0, "fail": 2, "sec": 2, "end": "2026-09-14"}
 {"event": "fetch_stock", "at": "2026-09-15 11:37", "batch": 0, "fq": 920, "ok": 806, "fail": 114, "sec": 464, "end": "2026-09-14"}
+{"event": "fetch_index", "at": "2026-09-15 11:39", "backfill": false}
+{"event": "fetch_etf", "at": "2026-09-15 11:39"}
+{"event": "fetch_stock", "at": "2026-09-15 11:42", "batch": 0, "fq": 117, "ok": 0, "fail": 117, "sec": 140, "end": "2026-09-14"}
+{"event": "housekeeping", "at": "2026-09-15 11:42", "data_mb": 182.0}
