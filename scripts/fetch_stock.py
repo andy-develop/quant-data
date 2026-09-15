@@ -4,14 +4,17 @@
 
 通道 A — qt.gtimg.cn 批量快照（全市场约 90 个请求）：取【最后完整交易日】当日完整收盘
          bar → raw 增量。日常增量主通道，请求量小，远离 WAF 阈值。
-通道 B — ifzq.gtimg.cn fqkline（单股票逐股）：raw 历史补段 / hfq 全部。
-         hfq 无批量接口只能逐股；全局限速 ~2.5 QPS + 连续失败退避，防封 IP。
+通道 B — fqkline 逐股（raw 历史补段 / hfq 全部）。hfq 无批量接口只能逐股；全局限速
+         ~2.5 QPS + 连续失败退避，防封 IP。
+         ⚠️ WAF 按【主机】轮换封禁（实测：某时段 ifzq.gtimg.cn 封 / web.ifzq.gtimg.cn 通，
+         数小时后反转）→ 主机池故障转移：请求按存活顺序尝试，被封主机自动降级并 10 分钟后
+         重试。kline(不复权) 端点历史上双主机均可用。
 
 - 只更新 meta/stocks.parquet 中 status=1（正常上市）的股票；退市股保留历史不再更新。
 - 增量起点 = 现有序列（分片+增量）max(date)+1；无记录默认回看 3 年。
 - 抓取截止 = last_complete_day()（15:30 前取上一交易日；12:00 门户 / 16:35 镜像均安全）。
 - 输出 data/kline/stock/{raw,hfq}_incr_YYYYMMDD.parquet（每日小文件，控制 git 增量）；
-  每周一由 housekeeping --compact 并入年份分片并清理增量。
+  每周一由 housekeeping --compact 并入年份分片并清理。
 
 用法:
   python3 scripts/fetch_stock.py              # 日常增量（raw 批量 + hfq 逐股）
@@ -41,6 +44,8 @@ MIN_INTERVAL = 0.4     # 全局最小请求间隔(s) → ≤9000 请求/小时�
 WAF_ALERT = 8          # 连续失败达此值 → 视为被风控，退避 60s
 WAF_MAX_ROUNDS = 3     # 退避轮数上限：持续被风控则中止，避免空转烧 CI 时间
 BATCH_SIZE = 60        # qt.gtimg.cn 单请求最多拼接股票数
+FQ_HOSTS = ["ifzq.gtimg.cn", "web.ifzq.gtimg.cn"]  # fqkline/kline 主机池（WAF 轮换封禁）
+HOST_UNBLOCK_S = 600   # 被封主机 10 分钟后自动解封重试
 
 # 全局限速 + 连续失败计数
 _rate_lock = threading.Lock()
@@ -48,6 +53,34 @@ _last_req = 0.0
 _fail_lock = threading.Lock()
 _consec_fail = 0
 _backoff_rounds = 0
+
+# 主机级 WAF 封禁跟踪
+_host_lock = threading.Lock()
+_blocked_hosts = {}  # host -> unblock_ts
+
+
+def _host_blocked(host: str) -> bool:
+    return _blocked_hosts.get(host, 0) > time.time()
+
+
+def _mark_host_blocked(host: str) -> None:
+    with _host_lock:
+        _blocked_hosts[host] = time.time() + HOST_UNBLOCK_S
+
+
+def _mark_host_ok(host: str) -> None:
+    with _host_lock:
+        _blocked_hosts.pop(host, None)
+
+
+def _pick_hosts() -> list:
+    """候选主机：未封在前（轮转），被封 10 分钟到期后自动回归。"""
+    with _host_lock:
+        now = time.time()
+        alive = [h for h in FQ_HOSTS if _blocked_hosts.get(h, 0) <= now]
+        dead = [h for h in FQ_HOSTS if _blocked_hosts.get(h, 0) > now]
+    return alive + dead
+
 
 _tl = threading.local()
 
@@ -93,13 +126,15 @@ def _session() -> requests.Session:
     return s
 
 
-def _get_json(url: str):
+def _get_json(url: str, host: str = ""):
     """GET JSON；限速 + WAF 识别 + 退避重试。失败返回 None。"""
     for k in range(RETRY + 1):
         _pace()
         try:
             r = _session().get(url, timeout=TIMEOUT)
             if r.status_code in (403, 429) or "501page" in r.text[:300]:
+                if host:
+                    _mark_host_blocked(host)
                 raise RuntimeError("waf")
             r.raise_for_status()
             _reset_fail()
@@ -111,13 +146,15 @@ def _get_json(url: str):
     return None
 
 
-def _get_text(url: str):
+def _get_text(url: str, host: str = ""):
     """GET 文本（GBK）；限速 + WAF 识别 + 退避重试。失败返回 None。"""
     for k in range(RETRY + 1):
         _pace()
         try:
             r = _session().get(url, timeout=TIMEOUT)
             if r.status_code in (403, 429) or "501page" in r.text[:300]:
+                if host:
+                    _mark_host_blocked(host)
                 raise RuntimeError("waf")
             r.raise_for_status()
             r.encoding = "gbk"
@@ -130,44 +167,51 @@ def _get_text(url: str):
     return None
 
 
+def _fqkline_url(host: str, sym: str, start: str, end: str, hfq: bool) -> str:
+    """fqkline(kline) URL；host 走主机池故障转移。"""
+    if hfq:
+        return (f"https://{host}/appstock/app/fqkline/get"
+                f"?param={sym},day,{start},{end},{2000},hfq")
+    return (f"https://{host}/appstock/app/kline/kline"
+            f"?param={sym},day,{start},{end},{2000},")
+
+
 def fetch_fqkline(sym: str, start: str, end: str, hfq: bool) -> pd.DataFrame:
     """抓一只股票 [start,end] 日K；hfq=True 后复权。失败/空 → 空表。
 
-    腾讯行格式: [date, open, close, high, low, volume, ...]（raw 无成交额，amount 补 0）。"""
-    if hfq:
-        url = (f"https://ifzq.gtimg.cn/appstock/app/fqkline/get"
-               f"?param={sym},day,{start},{end},{2000},hfq")
-        key = "hfqday"
-    else:
-        url = (f"https://ifzq.gtimg.cn/appstock/app/kline/kline"
-               f"?param={sym},day,{start},{end},{2000},")
-        key = "day"
-    j = _get_json(url)
-    if not j:
-        return pd.DataFrame()
-    d = (j.get("data") or {}).get(sym) or {}
-    rows = d.get(key) or []
-    recs = []
-    for r in rows:
-        try:
-            recs.append({"date": pd.Timestamp(r[0]),
-                         "open": float(r[1]), "close": float(r[2]),
-                         "high": float(r[3]), "low": float(r[4]),
-                         "volume": float(r[5])})
-        except (ValueError, TypeError, IndexError):
+    腾讯行格式: [date, open, close, high, low, volume, ...]（raw 无成交额，amount 补 0）。
+    逐主机尝试（未封在前，被封主机到期自动回归）。"""
+    for host in _pick_hosts():
+        j = _get_json(_fqkline_url(host, sym, start, end, hfq), host)
+        if not j:
             continue
-    return pd.DataFrame(recs)
+        _mark_host_ok(host)
+        d = (j.get("data") or {}).get(sym) or {}
+        rows = d.get("hfqday" if hfq else "day") or []
+        recs = []
+        for r in rows:
+            try:
+                recs.append({"date": pd.Timestamp(r[0]),
+                             "open": float(r[1]), "close": float(r[2]),
+                             "high": float(r[3]), "low": float(r[4]),
+                             "volume": float(r[5])})
+            except (ValueError, TypeError, IndexError):
+                continue
+        return pd.DataFrame(recs)
+    return pd.DataFrame()
 
 
 def batch_snapshot(syms: list) -> dict:
     """qt.gtimg.cn 批量快照 -> {sym: {open,high,low,close,volume,amount=0}}。
 
     仅保留【当日有成交】(volume>0 且 price>0) 的股票 —— 停牌/盘前/休市均无当日 bar。
-    amount 置 0 以与历史 raw 列契约一致（腾讯不复权 K线本就无成交额）。"""
+    amount 置 0 以与历史 raw 列契约一致（腾讯不复权 K线本就无成交额）。
+    qt 被封（WAF）时返回空 dict，由 main 降级走 fqkline raw。"""
+    qt_host = "qt.gtimg.cn"
     out = {}
     for i in range(0, len(syms), BATCH_SIZE):
         batch = syms[i:i + BATCH_SIZE]
-        txt = _get_text("https://qt.gtimg.cn/q=" + ",".join(batch))
+        txt = _get_text(f"https://{qt_host}/q=" + ",".join(batch), qt_host)
         if not txt:
             continue
         for line in txt.split(";"):
@@ -242,14 +286,19 @@ def main() -> None:
     batch_rows = []
     if batch_codes:
         snap = batch_snapshot([C.tx_to_symbol(c) for c in batch_codes])
-        for code in batch_codes:
-            q = snap.get(C.tx_to_symbol(code))
-            if not q:
-                continue
-            batch_rows.append({"code": code, "date": end, "open": q["open"],
-                               "close": q["close"], "high": q["high"], "low": q["low"],
-                               "volume": q["volume"], "amount": 0.0})
-        print(f"[fetch_stock] 批量快照: {len(batch_rows):,}/{len(batch_codes):,} 只取到 {end_s} bar")
+        if snap:
+            for code in batch_codes:
+                q = snap.get(C.tx_to_symbol(code))
+                if not q:
+                    continue
+                batch_rows.append({"code": code, "date": end, "open": q["open"],
+                                   "close": q["close"], "high": q["high"], "low": q["low"],
+                                   "volume": q["volume"], "amount": 0.0})
+            print(f"[fetch_stock] 批量快照: {len(batch_rows):,}/{len(batch_codes):,} 只取到 {end_s} bar")
+        else:
+            # qt 被封降级：raw 单日缺口改走 fqkline raw（kline 端点双主机可用）
+            fq_jobs += [(code, C.tx_to_symbol(code), end_s, end_s, False) for code in batch_codes]
+            print(f"[fetch_stock] qt 批量通道被风控，{len(batch_codes):,} 只降级走 fqkline raw")
 
     # ---- 通道 B：fqkline（raw 补段 + hfq 全部） ----
     t0 = time.time()

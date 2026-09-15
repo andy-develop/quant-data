@@ -16,6 +16,11 @@ on:
         required: false
         type: string
         default: ""
+      STOCK_DAYS:
+        description: "fetch_stock --days（强制回看 N 天探测通道；留空=增量）"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -58,9 +63,11 @@ jobs:
         # 失败不阻断镜像（index/etf/housekeeping/commit 照常），缺口由次日/portal 兜底。
         env:
           STOCK_LIMIT: ${{ inputs.STOCK_LIMIT || '' }}
+          STOCK_DAYS: ${{ inputs.STOCK_DAYS || '' }}
         run: |
           EXTRA=""
-          if [ -n "$STOCK_LIMIT" ]; then EXTRA="--limit $STOCK_LIMIT"; fi
+          if [ -n "$STOCK_LIMIT" ]; then EXTRA="$EXTRA --limit $STOCK_LIMIT"; fi
+          if [ -n "$STOCK_DAYS" ]; then EXTRA="$EXTRA --days $STOCK_DAYS"; fi
           python3 scripts/fetch_stock.py $EXTRA || echo "::warning::股票抓取被风控或失败，当日股票增量缺口由后续运行补齐"
 
       - name: Housekeeping (rolling retention; compact stock shards on Monday)
