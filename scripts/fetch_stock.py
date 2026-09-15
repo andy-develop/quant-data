@@ -8,7 +8,10 @@
          ~2.5 QPS + 连续失败退避，防封 IP。
          ⚠️ WAF 按【主机】轮换封禁（实测：某时段 ifzq.gtimg.cn 封 / web.ifzq.gtimg.cn 通，
          数小时后反转）→ 主机池故障转移：请求按存活顺序尝试，被封主机自动降级并 10 分钟后
-         重试。kline(不复权) 端点历史上双主机均可用。
+         重试。
+         首选 proxy.finance.qq.com（腾讯官方代理域名，实测 30+ 连发不触发 WAF，hfq 数值与
+         ifzq 通道逐位一致）；该通道对个别股票（如 sh688981）缺 hfqday 时自动降级到其余主机。
+         注意 max 参数：>800 会被腾讯截断到 640 根（不足 3 年），必须用 800。
 
 - 只更新 meta/stocks.parquet 中 status=1（正常上市）的股票；退市股保留历史不再更新。
 - 增量起点 = 现有序列（分片+增量）max(date)+1；无记录默认回看 3 年。
@@ -44,7 +47,9 @@ MIN_INTERVAL = 0.4     # 全局最小请求间隔(s) → ≤9000 请求/小时�
 WAF_ALERT = 8          # 连续失败达此值 → 视为被风控，退避 60s
 WAF_MAX_ROUNDS = 3     # 退避轮数上限：持续被风控则中止，避免空转烧 CI 时间
 BATCH_SIZE = 60        # qt.gtimg.cn 单请求最多拼接股票数
-FQ_HOSTS = ["ifzq.gtimg.cn", "web.ifzq.gtimg.cn"]  # fqkline/kline 主机池（WAF 轮换封禁）
+FQ_HOSTS = ["proxy.finance.qq.com", "ifzq.gtimg.cn", "web.ifzq.gtimg.cn"]
+# fqkline/kline 主机池（proxy 首选：腾讯官方代理域名，WAF 免疫；ifzq/web.ifzq 被 WAF 轮换封禁）
+FQ_MAX = 800           # 腾讯 fqkline max 上限：>800 截断到 640 根（不足 3 年），必须 ≤800
 HOST_UNBLOCK_S = 600   # 被封主机 10 分钟后自动解封重试
 
 # 全局限速 + 连续失败计数
@@ -126,9 +131,13 @@ def _session() -> requests.Session:
     return s
 
 
-def _get_json(url: str, host: str = ""):
-    """GET JSON；限速 + WAF 识别 + 退避重试。失败返回 None。"""
-    for k in range(RETRY + 1):
+def _get_json(url: str, host: str = "", backoff: bool = True, retries: int = RETRY):
+    """GET JSON；限速 + WAF 识别 + 退避重试。失败返回 None。
+
+    backoff=False（降级探测）：WAF/网络失败只标记该主机被封，不计入全局退避
+    （避免 empty 股票降级探测被封主机时误触发退避中止）。
+    retries：重试次数；降级探测用 0（单次即可，空数据不值得重试）。"""
+    for k in range(retries + 1):
         _pace()
         try:
             r = _session().get(url, timeout=TIMEOUT)
@@ -140,15 +149,16 @@ def _get_json(url: str, host: str = ""):
             _reset_fail()
             return r.json()
         except Exception:
-            _waf_backoff()
-            if k < RETRY:
+            if backoff:
+                _waf_backoff()
+            if k < retries:
                 time.sleep(1 + k * 2)
     return None
 
 
-def _get_text(url: str, host: str = ""):
+def _get_text(url: str, host: str = "", backoff: bool = True, retries: int = RETRY):
     """GET 文本（GBK）；限速 + WAF 识别 + 退避重试。失败返回 None。"""
-    for k in range(RETRY + 1):
+    for k in range(retries + 1):
         _pace()
         try:
             r = _session().get(url, timeout=TIMEOUT)
@@ -161,33 +171,43 @@ def _get_text(url: str, host: str = ""):
             _reset_fail()
             return r.text
         except Exception:
-            _waf_backoff()
-            if k < RETRY:
+            if backoff:
+                _waf_backoff()
+            if k < retries:
                 time.sleep(1 + k * 2)
     return None
 
 
 def _fqkline_url(host: str, sym: str, start: str, end: str, hfq: bool) -> str:
-    """fqkline(kline) URL；host 走主机池故障转移。"""
+    """fqkline(kline) URL；host 走主机池故障转移。
+
+    proxy.finance.qq.com 是腾讯代理域名，路径带 /ifzqgtimg 前缀。"""
+    path = "/ifzqgtimg/appstock/app" if host == "proxy.finance.qq.com" else "/appstock/app"
     if hfq:
-        return (f"https://{host}/appstock/app/fqkline/get"
-                f"?param={sym},day,{start},{end},{2000},hfq")
-    return (f"https://{host}/appstock/app/kline/kline"
-            f"?param={sym},day,{start},{end},{2000},")
+        return (f"https://{host}{path}/fqkline/get"
+                f"?param={sym},day,{start},{end},{FQ_MAX},hfq")
+    return (f"https://{host}{path}/kline/kline"
+            f"?param={sym},day,{start},{end},{FQ_MAX},")
 
 
 def fetch_fqkline(sym: str, start: str, end: str, hfq: bool) -> pd.DataFrame:
     """抓一只股票 [start,end] 日K；hfq=True 后复权。失败/空 → 空表。
 
     腾讯行格式: [date, open, close, high, low, volume, ...]（raw 无成交额，amount 补 0）。
-    逐主机尝试（未封在前，被封主机到期自动回归）。"""
-    for host in _pick_hosts():
-        j = _get_json(_fqkline_url(host, sym, start, end, hfq), host)
+    首选 proxy（腾讯代理域名，WAF 免疫）；若其无对应类型数据（个别股票缺 hfqday）
+    降级探测其余主机 —— 降级请求 backoff=False，避免误触发全局退避。"""
+    for i, host in enumerate(_pick_hosts()):
+        # 首主机（proxy）失败算 WAF 退避；降级主机单次探测、不计退避
+        j = _get_json(_fqkline_url(host, sym, start, end, hfq), host,
+                      backoff=(i == 0), retries=RETRY if i == 0 else 0)
         if not j:
             continue
         _mark_host_ok(host)
         d = (j.get("data") or {}).get(sym) or {}
         rows = d.get("hfqday" if hfq else "day") or []
+        if not rows:
+            # 该主机无对应类型数据（腾讯侧缺该区间数据/数据源差异），降级尝试下一主机
+            continue
         recs = []
         for r in rows:
             try:
