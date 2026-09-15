@@ -23,3 +23,8 @@
 {"event": "fetch_snapshot", "at": "2026-09-15 08:11", "day": "20260915", "etf": 32, "index": 5}
 {"event": "build_factors", "at": "2026-09-15 08:11", "stock_rows": 3527566}
 {"event": "gen_payload", "at": "2026-09-15 08:11", "hl_last": "2026-09-14", "hs300_last": "2026-09-14"}
+{"event": "fetch_index", "at": "2026-09-15 08:34", "backfill": false}
+{"event": "fetch_etf", "at": "2026-09-15 08:34"}
+{"event": "fetch_snapshot", "at": "2026-09-15 08:34", "day": "20260915", "etf": 32, "index": 5}
+{"event": "build_factors", "at": "2026-09-15 08:34", "stock_rows": 3527566}
+{"event": "gen_payload", "at": "2026-09-15 08:34", "hl_last": "2026-09-14", "hs300_last": "2026-09-14"}
