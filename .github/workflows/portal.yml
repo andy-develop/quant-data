@@ -89,6 +89,8 @@ jobs:
             echo "无新增变更，跳过 commit"
           else
             git commit -m "chore(data): portal pipeline $(date -u +%Y-%m-%d)"
+            # 并发推送（手动 push / mirror 流水线）导致非快进时先 rebase 再 push，避免数据丢在 runner 上
+            git pull --rebase origin main
             git push
           fi
 

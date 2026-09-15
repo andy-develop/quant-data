@@ -69,5 +69,7 @@ jobs:
             echo "无新增变更（节假日/无增量），跳过 commit"
           else
             git commit -m "chore(data): mirror close data $(date -u +%Y-%m-%d)"
+            # 并发推送（手动 push / 另一流水线）导致非快进时先 rebase 再 push，避免数据丢在 runner 上
+            git pull --rebase origin main
             git push
           fi
