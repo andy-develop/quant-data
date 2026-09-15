@@ -26,7 +26,7 @@ concurrency:
 jobs:
   portal:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 75
     defaults:
       run:
         working-directory: quant-data
@@ -61,6 +61,11 @@ jobs:
         env:
           PREFER_TX: "1"
         run: python3 scripts/fetch_etf.py
+
+      - name: Fetch stock daily bars (Tencent, T-1 incremental, non-blocking)
+        # 股票增量主通道是 16:35 mirror；此处兜底补漏（mirror 失败时仍可恢复 T-1）。
+        # 幂等：mirror 已入库时增量区间为空，秒级跳过
+        run: python3 scripts/fetch_stock.py || echo "::warning::股票增量抓取失败，选股段将沿用现有数据"
 
       - name: Fetch morning snapshot (11:30 realtime)
         # 快照失败不阻断整条流水线（morning 段回退到昨日快照，7 天保留）

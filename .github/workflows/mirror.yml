@@ -21,7 +21,7 @@ concurrency:
 jobs:
   mirror:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,8 +44,21 @@ jobs:
           PREFER_TX: "1"
         run: python3 scripts/fetch_etf.py
 
-      - name: Housekeeping (rolling retention 3y/13y + volume report)
-        run: python3 scripts/housekeeping.py
+      - name: Fetch stock daily bars (Tencent raw+hfq, today complete close)
+        # 双通道防 WAF：raw 走 qt.gtimg.cn 批量快照（全市场约 90 请求）；hfq 走
+        # ifzq.gtimg.cn 逐股（全局限速 ~2.5 QPS，约 35 分钟）。只写日增量小文件，
+        # 每周一由 housekeeping --compact 并入年份分片（控制 git 历史膨胀）。
+        run: python3 scripts/fetch_stock.py
+
+      - name: Housekeeping (rolling retention; compact stock shards on Monday)
+        # 周一把股票日增量并入年份分片并清理增量（控制 git 历史膨胀），其余天只做保留检查
+        run: |
+          if [ "$(date -u +%u)" = "1" ]; then
+            echo "== 周一：股票增量并入年份分片 =="
+            python3 scripts/housekeeping.py --compact
+          else
+            python3 scripts/housekeeping.py
+          fi
 
       - name: Commit increments
         run: |

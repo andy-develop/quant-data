@@ -28,3 +28,7 @@
 {"event": "fetch_snapshot", "at": "2026-09-15 08:34", "day": "20260915", "etf": 32, "index": 5}
 {"event": "build_factors", "at": "2026-09-15 08:34", "stock_rows": 3527566}
 {"event": "gen_payload", "at": "2026-09-15 08:34", "hl_last": "2026-09-14", "hs300_last": "2026-09-14"}
+{"event": "fetch_stock", "at": "2026-09-15 09:03", "jobs": 10430, "ok": 9526, "fail": 904, "sec": 342, "end": "2026-09-14"}
+{"event": "fetch_stock", "at": "2026-09-15 09:07", "jobs": 920, "ok": 0, "fail": 920, "sec": 192, "end": "2026-09-14"}
+{"event": "fetch_stock", "at": "2026-09-15 09:16", "batch": 0, "fq": 60, "ok": 58, "fail": 2, "sec": 23, "end": "2026-09-14"}
+{"event": "fetch_stock", "at": "2026-09-15 09:16", "batch": 0, "fq": 2, "ok": 0, "fail": 2, "sec": 0, "end": "2026-09-14"}

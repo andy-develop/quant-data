@@ -64,16 +64,20 @@ def write_df(df: pd.DataFrame, p: str, sort=None) -> None:
 
 
 def stock_read(prefix: str) -> pd.DataFrame:
-    """读股票分片 {prefix}_YYYY.parquet 合并（空则空表）。"""
+    """读股票序列：年份分片 {prefix}_YYYY.parquet + 日增量 {prefix}_incr_YYYYMMDD.parquet
+    合并（增量在后，同日重复以增量为准），按 code/date 排序。空则空表。"""
     files = sorted(glob.glob(f"{STOCK_DIR}/{prefix}_*.parquet"))
     if not files:
         return pd.DataFrame()
-    return pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
+    df = pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
+    return (df.drop_duplicates(["code", "date"], keep="last")
+              .sort_values(["code", "date"]).reset_index(drop=True))
 
 
 def stock_write(df: pd.DataFrame, prefix: str, sort=None) -> None:
-    """按年份分片写 {prefix}_YYYY.parquet（单片 <50MB，适配 GitHub 软限）；
-    删除不再需要的年份文件（滚动保留由调用方先过滤 df）。"""
+    """compact：按年份分片写 {prefix}_YYYY.parquet（单片 <50MB，适配 GitHub 软限）；
+    删除不再需要的年份文件与全部 {prefix}_incr_*.parquet 增量文件（已并入）。
+    滚动保留由调用方先过滤 df。"""
     if df.empty:
         return
     df = df.copy()
@@ -84,12 +88,29 @@ def stock_write(df: pd.DataFrame, prefix: str, sort=None) -> None:
         write_df(sub.drop(columns="_y"), f"{STOCK_DIR}/{prefix}_{y}.parquet", sort=sort)
     for p in glob.glob(f"{STOCK_DIR}/{prefix}_*.parquet"):
         base = os.path.basename(p)
+        if "_incr_" in base:
+            os.remove(p)
+            print(f"  清理增量(已并入分片): {base}")
+            continue
         try:
             y = int(base[len(prefix) + 1:base.index(".parquet")])
         except ValueError:
             continue
         if y not in keep:
             os.remove(p)
+
+
+def stock_incr_write(df: pd.DataFrame, prefix: str) -> None:
+    """日增量写入 {prefix}_incr_YYYYMMDD.parquet（按 df 内最大日期命名，同日幂等追加）。"""
+    if df.empty:
+        return
+    df = df.copy()
+    day = df["date"].max().strftime("%Y%m%d")
+    p = f"{STOCK_DIR}/{prefix}_incr_{day}.parquet"
+    old = pd.read_parquet(p) if os.path.exists(p) else pd.DataFrame()
+    merged = pd.concat([df, old], ignore_index=True).drop_duplicates(["code", "date"])
+    write_df(merged, p, sort=["code", "date"])
+    print(f"  {prefix} 增量 -> {os.path.basename(p)} ({len(merged):,} 行)")
 
 
 # ---------------- 代码格式 ----------------

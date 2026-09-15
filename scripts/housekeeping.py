@@ -12,8 +12,11 @@
 
 注意：因子层 data/factors/ 是确定性中间产物（由 kline 重算），不入库（.gitignore），
 不在此清理（build_factors 每次全量重建）。
-用法: python3 scripts/housekeeping.py
+股票 K 线：日常走"日增量文件"（fetch_stock），--compact 时才并入年份分片（体积控制：
+避免每日重写 160MB 分片导致 git 历史膨胀，增量文件每天仅数 MB）。
+用法: python3 scripts/housekeeping.py [--compact]
 """
+import argparse
 import glob
 import os
 
@@ -42,16 +45,22 @@ def prune(df: pd.DataFrame, keep_days: int, sort_cols) -> pd.DataFrame:
 
 
 def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--compact", action="store_true",
+                    help="把股票日增量并入年份分片并清理增量文件（建议每周 1 次）")
+    args = ap.parse_args()
     C.ensure_dirs()
 
-    # 1) 股票 raw/hfq：3 年（按年份分片存储，分片合并修剪后整表回写，自动删过期年份）
-    for f in ("raw", "hfq"):
-        df = C.stock_read(f)
-        if df.empty:
-            continue
-        out = prune(df, STOCK_KEEP_DAYS, ["code", "date"])
-        if len(out) < len(df):
+    # 1) 股票 raw/hfq：3 年滚动。--compact 时合并日增量 → 年份分片（自动删过期年份/增量）；
+    #    普通模式不动股票（增量文件为最近几日小文件，均在保留期内，体积可控）
+    if args.compact:
+        for f in ("raw", "hfq"):
+            df = C.stock_read(f)
+            if df.empty:
+                continue
+            out = prune(df, STOCK_KEEP_DAYS, ["code", "date"])
             C.stock_write(out, f, sort=["code", "date"])
+            print(f"[housekeeping] compact {f}: 分片 {len(out):,} 行")
 
     # 2) 指数：10 年（只修剪 kline/index/ 下的 *.parquet）
     for p in glob.glob(f"{C.INDEX_DIR}/*.parquet"):
