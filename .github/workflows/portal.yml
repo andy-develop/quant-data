@@ -68,6 +68,10 @@ jobs:
       - name: Build payloads (hl/hs300/sector/stock/morning)
         run: python3 scripts/gen_payload.py
 
+      - name: Build weather payload (four-layer market weather)
+        # 失败不阻断整条流水线：沿用最近一次入库的 weather.json（页面显示旧数据日期）
+        run: python3 scripts/build_weather.py || echo "::warning::weather 构建失败，沿用现有 weather.json"
+
       - name: Build portal index.html
         run: python3 portal/build_portal.py
 
@@ -183,7 +187,16 @@ jobs:
           print(f"沪深300 data_date: 本地 {lh} / 线上 {oh}")
           if lh != oh:
               ok = False
+          lw = ow = None
+          lm = re.search(r'var WEATHER = (\{.*?\});', open("portal/index.html", encoding="utf-8").read(), re.S)
+          om = re.search(r'var WEATHER = (\{.*?\});', html, re.S)
+          if lm and om:
+              local_w = json.loads(lm.group(1)); online_w = json.loads(om.group(1))
+              lw = local_w.get("data_date"); ow = online_w.get("data_date")
+          print(f"大盘天气 data_date: 本地 {lw} / 线上 {ow}")
+          if lw != ow:
+              ok = False
           if not ok:
               raise SystemExit("发布验证失败：线上数据未更新（对比上方 data_date）")
-          print("发布验证通过：线上已是本次数据（红利低波 + 行业轮动 + 沪深300）")
+          print("发布验证通过：线上已是本次数据（红利低波 + 行业轮动 + 沪深300 + 大盘天气）")
           EOF

@@ -51,3 +51,8 @@
 {"event": "fetch_snapshot", "at": "2026-09-15 12:16", "day": "20260915", "etf": 32, "index": 5}
 {"event": "build_factors", "at": "2026-09-15 12:16", "stock_rows": 3600526}
 {"event": "gen_payload", "at": "2026-09-15 12:16", "hl_last": "2026-09-14", "hs300_last": "2026-09-14"}
+{"event": "fetch_index", "at": "2026-09-15 12:32", "backfill": false}
+{"event": "fetch_index", "at": "2026-09-15 12:34", "backfill": false}
+{"event": "build_weather", "at": "2026-09-15 12:36", "indices": ["000001", "000300", "399001", "399006", "932000"], "size_kb": 3529.7}
+{"event": "build_weather", "at": "2026-09-15 12:38", "indices": ["000001", "000300", "399001", "399006", "932000"], "size_kb": 3486.5}
+{"event": "build_weather", "at": "2026-09-15 12:39", "indices": ["000001", "000300", "399001", "399006", "932000"], "size_kb": 825.1}

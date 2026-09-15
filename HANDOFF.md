@@ -10,6 +10,7 @@
 - **ETF 策略**（原 red-dividend-strategy）：红利低波（四态仓位机 v7.12+）、沪深300 择时（v8.0 变体）、行业轮动（v1.1，21 行业 × 32 ETF）
 - **短线策略 / 个性化选股**（原 stock-factor-engine）：股票动量/波动因子（DuckDB 因子层）→ 选股列表
 - **量化实验室**（外部 quant-lab 报告）：动量 + 黑盒，优先本地报告，回退 `data/qlab/` 归档
+- **大盘天气**（四层择时，2026-09-15 新增）：5 大宽基指数天气总览 + 四层信号明细（均线状态机/量价网格/粘合清仓/融合决策），数据由 `scripts/build_weather.py` 预计算为 `data/payload/weather.json`，前端 `portal/weather_tab.html` 片段注入
 
 数据口径：A股日K 15:00 收盘后才完整 → 工作日 12:00 门户任务信号基于 **T-1 完整收盘**；"当天上午结果" = 11:30 实时快照（morning 段双轨展示）。
 
@@ -24,6 +25,7 @@ quant-data/
 │   ├── fetch_stock.py  # 股票日K：raw 批量快照 + hfq 逐股（腾讯双通道防 WAF）
 │   ├── fetch_snapshot.py  # 11:30 上午实时快照（ETF 32 + 指数 5）
 │   ├── build_factors.py   # DuckDB 股票日度因子（gitignored 确定性中间层）
+│   ├── build_weather.py   # 大盘天气四层择时预计算 → payload/weather.json
 │   ├── gen_payload.py     # 复用 engine/ 生成 hl/hs300/sector/stock/morning 5 段
 │   └── housekeeping.py    # 滚动保留（3y/13y/7天）+ compact + 体积报告
 ├── engine/             # ★ 统一回测引擎（原 red-dividend-strategy 迁入）
@@ -34,6 +36,7 @@ quant-data/
 │   └── tests/              # 64 项引擎单测（unittest）
 ├── portal/
 │   ├── template.html       # 门户宿主模板（约 2400 行）
+│   ├── weather_tab.html    # 大盘天气视图片段（.wzone，由 build_portal.py 注入）
 │   ├── build_portal.py     # payload → index.html（qlab 优先本地报告，回退归档）
 │   └── echarts.min.js      # ECharts 5.5.0 本地副本（禁 CDN，见 §5 踩坑）
 ├── data/               # 全部数据（增量文件入 git，见 §3 保留策略）
@@ -49,14 +52,14 @@ quant-data/
 | ETF K 线 | 32 只（行业轮动池） | `kline/etf/etf_kline.parquet` | 全量 |
 | 上午快照 | 32 ETF + 5 指数 11:30 实时 | `snapshot/{etf,index}_<day>.parquet` | 7 天 |
 | 因子层 | 日度因子（价格/量比） | `factors/` | gitignored（每次重算） |
-| payload | hl/hs300/sector/stock/morning | `payload/*.json` | 入库（门户输入） |
+| payload | hl/hs300/sector/stock/morning/weather | `payload/*.json` | 入库（门户输入） |
 | qlab 归档 | 动量/黑盒报告 JSON | `qlab/` | 入库 |
 
 当前数据规模（2026-09-15）：股票 hfq **3,610,087 行 / 5,227 只**（4,776 只完整 3 年）；指数均 10.7~13.0 年；ETF 2015→最新。`.git` ≈ 302M。
 
 ## 4. 双 GHA 任务（满足"12:00 更新、14:00 前出结果"）
 
-1. **portal.yml**（`0 4 * * 1-5` UTC = 北京 12:00，75min timeout）：fetch_index → fetch_etf(PREFER_TX=1) → fetch_stock（`|| warn` 非阻断，mirror 已入库时秒级 no-op）→ fetch_snapshot（不阻断）→ build_factors → gen_payload → build_portal → commit data → **HSK 发布**（skip-if-unchanged：data_date 三端 + content_sha）→ verify 线上 data_date。
+1. **portal.yml**（`0 4 * * 1-5` UTC = 北京 12:00，75min timeout）：fetch_index → fetch_etf(PREFER_TX=1) → fetch_stock（`|| warn` 非阻断，mirror 已入库时秒级 no-op）→ fetch_snapshot（不阻断）→ build_factors → gen_payload → **build_weather**（不阻断，失败沿用旧 weather.json）→ build_portal → commit data → **HSK 发布**（skip-if-unchanged：data_date 三端 + content_sha）→ verify 线上 data_date。
 2. **mirror.yml**（`35 8 * * 1-5` UTC = 北京 16:35，120min）：收盘后镜像当日完整 K 线（fetch_index → fetch_etf → fetch_stock 主通道）→ housekeeping（**周一 `--compact`** 并入分片）→ 有变更才 commit+push。commit 先 `git pull --rebase` 防并发推送非快进。
 
 ## 5. 关键实现与踩坑记录
@@ -68,6 +71,10 @@ quant-data/
 - **⚠️ HSK URL 漂移**：HSK 的 update function 已被禁用（403 11301002），内容有变化时必须建新资源 → URL 会漂移（2026-09-15 已从 jjhujm.gicf.fun 变为 hci3bx.gicf.fun）。旧资源仍可访问但内容冻结。验证步骤以 `data/hsk-resource.json` 的最新 URL 为准。
 - **ECharts 必须本地化**（jsdelivr CDN 在 WebView 挂起 60s 超时）；隐藏容器（offsetWidth=0）初始化图表失败 → 懒初始化。
 - **红涨/绿涨语义隔离**：ETF 红涨、股票引擎绿涨（`.pzone` 作用域隔离 CSS 变量）。
+- **天气视图注入链路**：`weather_tab.html` 含 `var WEATHER = /*__WEATHER__*/{};` 注入点 → build_portal.py 先 `replace("/*__WEATHER__*/{}", weather_json)`，整体片段再替换 template 的天气视图占位注释 → index.html。weather.json 缺失时降级为缺失提示（不报错）。双占位符残留校验含 `__WEATHER__`。
+- **⚠️ 片段内注释勿写字面占位符**：weather_tab.html 头部注释曾写 `<!--__WEATHER_VIEW__-->`，注入后残留校验误报（`__WEATHER_VIEW__` 是 `__WEATHER__` 前缀），已改为中文字面描述。
+- **天气 K 线懒初始化**：`.w-det`（details）闭合时容器 `offsetParent=null` → `ensureChart()` 先判 `offsetParent` 再 `echarts.init`；`WeatherEngine.show()` 仅在路由到天气视图后触发 resize；实时兑底用 `qt.gtimg.cn` JSONP（`window["v_secid"]` 字符串解析 `f[3]/f[4]/f[32]`），失败仅提示不阻断。
+- **⚠️ qt.gtimg 为纯数据脚本不会主动回调**：`loadLive()` 需 `setInterval`（800ms×5）幂等轮询 `parseLive()`，并配 4s 超时 / `onerror` 仅提示；`WeatherEngine.show()` 里 `__weather_live_loaded` 标记兜底补齐（防视图隐藏期间错过 JSONP 返回）。
 
 ## 6. 本地开发环境
 
@@ -93,3 +100,13 @@ quant-data/
 - **因子层不入库**（每次重算）：如需历史因子回放需另行持久化。
 - **engine/ 内 hs300_update.py 等离线工具**：CI 不再调用（gen_payload 内置沪深300 变体），保留供本地回测/体检。
 - **qlab 段依赖外部报告**：quant-lab 报告为本地产物，CI 回退 `data/qlab/` 归档（懒更新）。
+- **verify 覆盖 weather（2026-09-15 已补齐）**：天气数据在 `var WEATHER = {...}` 内联 JS 而非 PAYLOAD script，verify 用正则提取并对比本地/线上 weather data_date，不一致即红；HSK 发布 skip 判定仍以三端 data_date + content_sha 为主，weather 不单独参与 skip。
+
+## 9. 大盘天气 · 四层择时（2026-09-15 新增）
+
+门户顶部新增第四 tag「大盘天气」，展示 5 大宽基指数（上证 000001 / 深成指 399001 / 沪深300 000300 / 创业板指 399006 / 中证2000 932000）的四层择时信号。
+
+- **数据链路**：`scripts/build_weather.py`（预计算四层策略，Python 复刻原 ai-timing-backtest 口径，FIXED=R0=1.0/fuseMode=blendC/fuseW=0.5/vpLevels=4/vetoMode=any/squeezeVeto/sqVRTHIN=0.8/sqFilterMA=20）读取 `kline/index/` 日K parquet → `data/payload/weather.json`（rows 全量 K 线 + ma/vp/fu 序列 + 最新 w 天气字段）→ build_portal 注入。
+- **前端**：`portal/weather_tab.html`（`.wzone` 作用域样式独立，不影响其他 view）：指数天气卡片（晴/多云/阴/雨/观望，红涨绿跌）+ 逐项四层信号明细（均线状态机/量价网格 C/粘合清仓/融合决策）+ ECharts K线+MA+成交量（dataZoom 默认近 40%）+ `qt.gtimg.cn` JSONP 盘中实时兑底。
+- **取数**：指数日K 由 `fetch_index.py` 双通道维护（CSI + 腾讯 fqkline），需保证锚定 5 指数在 `kline/index/` 有 T-1 完整 bar；中证2000（932000）走中证官网 index-perf 通道。
+- **回退**：weather.json 缺失 → 页面显示"天气模块未打包/数据缺失"降级提示；build_weather 失败 → CI `|| warn` 沿用旧数据。

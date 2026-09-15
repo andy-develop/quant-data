@@ -8,6 +8,7 @@
   - payload/sector.json   → PAYLOAD 的 sector（行业轮动）
   - payload/stock.json    → STOCK_UNIVERSE（[code,name]）+ REAL_FACTORS（因子）
   - payload/morning.json  → MORNING（上午实时快照，11:30）
+  - payload/weather.json  → 大盘天气四层择时（build_weather.py 生成）
 量化实验室报告（动量/黑盒）→ 优先 QLAB_REPORT 指向的 quant-lab/report/index.html
   （本地产物）；CI 上无 quant-lab，回退 data/qlab/momentum.json + blackbox.json
   （一次性抽取的实验室 payload，随数据仓库入库，懒更新）。
@@ -21,6 +22,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE = os.path.join(ROOT, "template.html")
+WEATHER_TAB = os.path.join(ROOT, "weather_tab.html")
 OUTPUT = os.path.join(ROOT, "index.html")
 BASE = os.path.dirname(ROOT)                     # quant-data 仓库根
 QD = os.path.join(BASE, "data", "payload")       # gen_payload.py 产物
@@ -138,10 +140,24 @@ def main():
     # 5) 量化实验室报告（动量/黑盒）
     qlab_payload = load_qlab_payload()
 
-    # 6) 读模板并替换占位符
+    # 6) 大盘天气四层择时：weather.json 数据 + weather_tab.html 片段
+    weather = load_json(os.path.join(QD, "weather.json"), {})
+    print(f"weather: data_date={weather.get('data_date')} 指数 {len(weather.get('indices', {}))} 个")
+    weather_tab = ""
+    if os.path.exists(WEATHER_TAB):
+        with open(WEATHER_TAB, encoding="utf-8") as f:
+            weather_tab = f.read()
+        weather_tab = weather_tab.replace("/*__WEATHER__*/{}", js_array_str(weather))
+    else:
+        print("警告: 缺少 portal/weather_tab.html，天气视图降级为缺失提示")
+        weather_tab = ('<div class="wzone w-missing">天气模块未打包（缺少 portal/weather_tab.html）。'
+                       '</div>')
+
+    # 7) 读模板并替换占位符
     with open(TEMPLATE, encoding="utf-8") as f:
         html = f.read()
 
+    html = html.replace("<!--__WEATHER_VIEW__-->", weather_tab)
     html = html.replace(
         '<script id="PAYLOAD" type="application/json">__PAYLOAD__</script>',
         '<script id="PAYLOAD" type="application/json">' + js_array_str(payload) + '</script>')
@@ -155,10 +171,11 @@ def main():
     html = html.replace("/*__QLAB_BLACKBOX__*/{}",
                         js_array_str(qlab_payload.get("blackbox", {})))
 
-    # 7) 校验无残留占位符
+    # 8) 校验无残留占位符
     remain = [p for p in ["__PAYLOAD__", "__REAL_FACTORS__", "__STOCK_UNIVERSE__",
                           "__MORNING__", "__GEN_TIME__", "__DATA_DATE__",
-                          "__QLAB_MOMENTUM__", "__QLAB_BLACKBOX__"] if p in html]
+                          "__QLAB_MOMENTUM__", "__QLAB_BLACKBOX__", "__WEATHER__",
+                          "__WEATHER_VIEW__"] if p in html]
     if remain:
         print(f"错误: 仍有占位符未替换: {remain}")
         sys.exit(1)

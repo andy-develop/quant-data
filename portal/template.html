@@ -342,6 +342,7 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
     <button class="p-tab active" data-cat="short">短线策略</button>
     <button class="p-tab" data-cat="etf">ETF策略</button>
     <button class="p-tab" data-cat="pick">个性化选股</button>
+    <button class="p-tab" data-cat="weather">大盘天气</button>
   </nav>
 </div>
 <div class="layout">
@@ -1198,6 +1199,11 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
     </div>
   </div>
   </div><!-- /view-pick -->
+
+  <!-- ===== 大盘天气 · 四层择时（weather_tab.html 由 build_portal.py 注入） ===== -->
+  <div id="view-weather" class="view" style="display:none">
+  <!--__WEATHER_VIEW__-->
+  </div><!-- /view-weather -->
   </main>
 </div>
 <div id="mask" class="mask"></div>
@@ -1244,11 +1250,13 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
   var CAT_INFO = {
     short:{label:"短线策略", default:"short-momentum"},
     etf:{label:"ETF策略", default:"timing-hongli"},
-    pick:{label:"个性化选股", default:"pick-home"}
+    pick:{label:"个性化选股", default:"pick-home"},
+    weather:{label:"大盘天气", default:"weather-home"}
   };
   function categoryOf(key){
     if (key === "short" || key.indexOf("short-")===0) return "short";
     if (key === "pick" || key.indexOf("pick-")===0) return "pick";
+    if (key === "weather" || key.indexOf("weather-")===0) return "weather";
     return "etf";
   }
 
@@ -1283,6 +1291,11 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
       {key:"pick-about-g", label:"关于", children:[
         {key:"pick-about", label:"方案说明"}
       ]}
+    ],
+    weather:[
+      {key:"weather", label:"大盘择时", children:[
+        {key:"weather-home", label:"天气总览"}
+      ]}
     ]
   };
   var PAGE = {
@@ -1302,7 +1315,9 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
     "pick-home":    {t:"选股主页", shome:true},
     "pick-factors":  {t:"因子库", pickview:"factors"},
     "pick-backtest": {t:"回测验证", pickview:"backtest"},
-    "pick-about":    {t:"方案说明", pickview:"about"}
+    "pick-about":    {t:"方案说明", pickview:"about"},
+    "weather":       {t:"大盘天气 · 总览", c:"大盘四层择时：均线状态机 / 量价网格C / 粘合清仓 / 融合决策。覆盖 5 个宽基指数，请从左侧目录选择查看。"},
+    "weather-home":  {t:"大盘天气", weather:true}
   };
   var currentCategory = "etf";
   var currentTree = TREE;
@@ -1357,7 +1372,7 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
     }
     return "";
   }
-  var PORTAL_VIEWS = ["view-hongli","view-empty","view-sector","view-hs300","view-short","view-shome","view-pick","view-morning"];
+  var PORTAL_VIEWS = ["view-hongli","view-empty","view-sector","view-hs300","view-short","view-shome","view-pick","view-morning","view-weather"];
   function showView(id){
     PORTAL_VIEWS.forEach(function(v){
       document.getElementById(v).style.display = (v === id) ? "" : "none";
@@ -1431,6 +1446,10 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
       showView("view-short");
       document.title = "短线策略 · " + pg.t;
       setTimeout(function(){ if (window.QLab) QLab.show(pg.qlab); }, 80);
+    } else if (pg.weather) {
+      showView("view-weather");
+      document.title = "大盘天气 · 四层择时";
+      setTimeout(function(){ if (window.WeatherEngine) WeatherEngine.show(); }, 80);
     } else if (pg.pickview) {
       showView("view-pick");
       document.title = "个性化选股 · " + pg.t;

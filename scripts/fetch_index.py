@@ -21,12 +21,20 @@ import common as C  # noqa: E402
 
 UA = {"User-Agent": C.UA, "Referer": "https://www.csindex.com.cn/"}
 
-CSI_CODES = ["H20269", "H30269", "H00300", "000300"]
+CSI_CODES = ["H20269", "H30269", "H00300", "000300", "932000"]
 TX_CODES = {  # 主要指数(10年) — 腾讯 fqkline 主通道（东财对 CI IP 连接级限流，见 red-dividend 台账）
     "000001": ("sh000001", "上证指数"),
     "000905": ("sh000905", "中证500"),
     "000852": ("sh000852", "中证1000"),
+    "399001": ("sz399001", "深证成指"),   # 大盘天气 · 择时锚定指数
+    "399006": ("sz399006", "创业板指"),   # 大盘天气 · 择时锚定指数
 }
+# 932000（中证2000）为 93 开头自编指数，仅中证官网提供（CSI 通道）
+NEW_INDEX_META = [  # 新增指数清单行（缺失时由 ensure_index_meta 补入）
+    {"code": "399001", "name": "深证成指", "kind": "index", "secid": "sz399001"},
+    {"code": "399006", "name": "创业板指", "kind": "index", "secid": "sz399006"},
+    {"code": "932000", "name": "中证2000", "kind": "index", "secid": ""},
+]
 TX_BACKFILL_START = "2016-01-01"  # 10 年
 TX_CHUNK = 2000                   # 腾讯单次最大 bar 数（实测 2000 可一次返回）
 
@@ -109,10 +117,37 @@ def fetch_tx_kline(s: requests.Session, sym: str, start: str, end: str) -> list:
 
 
 def _csi_to_df(code: str, rows: list) -> pd.DataFrame:
-    df = pd.DataFrame([{"date": pd.to_datetime(r["tradeDate"]), "close": float(r["close"])}
-                       for r in rows])
+    """中证官网 index-perf 全字段：tradeDate/open/high/low/close/tradingVol/tradingValue。
+    大盘天气的量价策略需要 OHLCV，必须保留 open/high/low/volume（旧版只留 close）。"""
+    df = pd.DataFrame([{
+        "date": pd.to_datetime(r["tradeDate"]),
+        "open": float(r.get("open") if r.get("open") is not None else r["close"]),
+        "close": float(r["close"]),
+        "high": float(r.get("high") if r.get("high") is not None else r["close"]),
+        "low": float(r.get("low") if r.get("low") is not None else r["close"]),
+        "volume": float(r.get("tradingVol") or 0.0),
+    } for r in rows])
     df.insert(0, "code", code)
     return df
+
+
+def ensure_csi_ohlcv(s: requests.Session, code: str) -> int:
+    """旧版 CSI parquet 只有 date/close 列（缺 OHLCV，量价策略无法计算）：
+    检测到缺 open/high/low/volume 时全量重拉该代码做一次升级（幂等）。"""
+    p = f"{C.INDEX_DIR}/{code}.parquet"
+    old = C.read_df(p)
+    need = {"open", "high", "low", "volume"}
+    if len(old) and need <= set(old.columns):
+        return 0
+    end = datetime.date.today().strftime("%Y%m%d")
+    rows = fetch_csi(s, code, "20130719", end)
+    if not rows:
+        return 0
+    new = _csi_to_df(code, rows).drop_duplicates("date").sort_values("date").reset_index(drop=True)
+    C.write_df(new, p, sort=["code", "date"])
+    print(f"[fetch_index] {code}: 升级补全 OHLCV -> {len(new)} 行 "
+          f"({new['date'].min().date()} ~ {new['date'].max().date()})")
+    return len(new)
 
 
 def _tx_to_df(code: str, bars: list) -> pd.DataFrame:
@@ -182,6 +217,7 @@ def main() -> None:
     backfill = "--backfill" in sys.argv
     s = make_session()
     for code in CSI_CODES:
+        ensure_csi_ohlcv(s, code)
         update_csi(s, code)
     for code, (sym, name) in TX_CODES.items():
         if backfill and os.path.exists(f"{C.INDEX_DIR}/{code}.parquet"):
@@ -199,6 +235,20 @@ def main() -> None:
                     idx.loc[_, "start"] = str(d["date"].min().date())
                     idx.loc[_, "end"] = str(d["date"].max().date())
                     idx.loc[_, "n"] = len(d)
+        # 补入新增指数行（大盘天气锚定：399001/399006/932000）
+        existing = set(idx["code"])
+        for meta in NEW_INDEX_META:
+            if meta["code"] in existing:
+                continue
+            p = f"{C.INDEX_DIR}/{meta['code']}.parquet"
+            if os.path.exists(p):
+                d = pd.read_parquet(p)
+                meta = dict(meta, start=str(d["date"].min().date()),
+                            end=str(d["date"].max().date()), n=len(d))
+            else:
+                meta = dict(meta, start="", end="", n=0)
+            idx = pd.concat([idx, pd.DataFrame([meta])], ignore_index=True)
+            print(f"[fetch_index] 清单新增 {meta['code']} {meta['name']}")
         C.write_df(idx, f"{C.META}/indices.parquet", sort=["code"])
     C.manifest_add({"event": "fetch_index", "at": C.bj_now(), "backfill": backfill})
     print("指数更新完成")

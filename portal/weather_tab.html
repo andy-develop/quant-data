@@ -1,0 +1,343 @@
+<!-- ============================================================
+  大盘天气 · 四层择时（weather_tab.html）
+  ------------------------------------------------------------
+  本片段由 build_portal.py 注入 template.html 的天气视图占位注释处，
+  外层再包 <div id="view-weather" class="view" style="display:none">。
+  数据源: data/payload/weather.json（scripts/build_weather.py 生成），
+  注入点 /*__WEATHER__*/{} （缺文件时为空对象，页面降级提示）。
+  口径: FIXED = {R0=1.0, fuseMode="blendC", fuseW=0.5, vpLevels=4,
+               vetoMode="any", squeezeVeto=True, sqVRTHIN=0.8, sqFilterMA=20}
+  实时兑底: qt.gtimg.cn JSONP（script 标签直连，无 CORS 问题），
+            失败/超时仅提示，策略信号始终用 T-1 完整收盘快照。
+  ============================================================ -->
+<style>
+.wzone{--w-up:#E0443C;--w-down:#16A34A;--w-warm:#D97706;--w-blue:#2B6CB0}
+.wzone .w-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:12px;margin-bottom:4px}
+.wzone .w-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:13px 15px;cursor:pointer;transition:box-shadow .15s,border-color .15s;box-shadow:0 1px 3px rgba(22,50,79,.05)}
+.wzone .w-card:hover{border-color:#9DBDDD;box-shadow:0 4px 14px rgba(43,108,176,.12)}
+.wzone .w-card.sel{border-color:var(--blue);box-shadow:0 0 0 2px rgba(43,108,176,.15)}
+.wzone .w-top{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.wzone .w-name{font-size:14.5px;font-weight:700;color:var(--ink)}
+.wzone .w-code{font-size:11px;color:var(--dim);font-family:Menlo,Consolas,monospace}
+.wzone .w-price{font-size:20px;font-weight:800;margin:7px 0 6px;font-family:'SF Mono',Menlo,Consolas,monospace;color:var(--ink)}
+.wzone .w-price .w-pct{font-size:12.5px;font-weight:700}
+.wzone .w-row{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.wzone .w-pos{font-size:12px;color:var(--sub)}
+.wzone .w-tags{display:flex;flex-wrap:wrap;gap:5px}
+.wzone .w-tag{font-size:10.5px;padding:2px 8px;border-radius:10px;background:#F0F6FD;color:var(--sub);border:1px solid var(--line)}
+.wzone .w-tag.w-danger{background:#FDE8E8;color:#C0392B;border-color:#F5C6C6}
+.wzone .w-badge{display:inline-block;font-size:12px;font-weight:700;padding:2px 10px;border-radius:12px}
+.wzone .w-badge.w-hot{background:#FDE8E8;color:#C0392B}
+.wzone .w-badge.w-warm{background:#FDF0DC;color:#B45309}
+.wzone .w-badge.w-cool{background:#EAF2FB;color:#2B6CB0}
+.wzone .w-badge.w-rain{background:#E4F5EA;color:#177245}
+.wzone .w-badge.w-veto{background:#F3F4F6;color:#6B7280}
+.wzone .w-det{margin-bottom:10px}
+.wzone .w-det summary .sum-t b{color:#C0392B}
+.wzone .w-chart{width:100%;height:300px}
+.wzone .w-live-up{color:var(--w-up);font-weight:600}
+.wzone .w-live-down{color:var(--w-down);font-weight:600}
+.wzone .w-missing{background:#FDF0DC;border:1px solid #F3D9A4;border-radius:12px;padding:26px 20px;text-align:center;color:#8a6420;font-size:14px}
+</style>
+<div class="wzone">
+<header>
+  <div class="brand">大盘四层择时 · 均线状态机 / 量价网格C / 粘合清仓 / 融合决策</div>
+  <h1>大盘天气 · 今天怎么看 <span id="w-badge" class="badge b-ok">T-1 快照</span></h1>
+  <div class="meta">
+    <span>数据日期 <b id="w-date">—</b></span>
+    <span>生成时间 <b id="w-gen">—</b>（北京时间）</span>
+    <span>覆盖指数 <b id="w-count">—</b> 个宽基</span>
+    <span>策略口径 <b>FIXED v1（blendC 融合 + 一票否决）</b></span>
+  </div>
+</header>
+
+<div id="w-missing" class="w-missing" style="display:none">
+  天气数据缺失（weather.json 未生成）。请先运行 <b>python3 scripts/build_weather.py</b> 或等待门户流水线更新。
+</div>
+
+<div id="w-body">
+  <!-- ① 五指数天气总览 -->
+  <section>
+    <div class="sec-t"><span class="sec-n">①</span>宽基指数天气总览<span style="font-size:12px;font-weight:400;color:var(--dim)">点击卡片直达下方信号明细 · 红=看多 / 绿=防守</span></div>
+    <div class="w-grid" id="w-grid"></div>
+    <div class="bt-note">天气语义：晴·满仓 / 多云·重仓 / 阴·轻仓 / 雨·空仓防守 / 观望 = 融合层一票否决（任一子层触发清仓）。仓位为<b>融合层</b>输出，非单层信号。</div>
+  </section>
+
+  <!-- ② 逐项信号明细 -->
+  <section>
+    <div class="sec-t"><span class="sec-n">②</span>逐项信号明细 · 四层拆解</div>
+    <div id="w-dets"></div>
+  </section>
+
+  <!-- ③ 实时行情（腾讯兑底） -->
+  <section>
+    <div class="sec-t"><span class="sec-n">③</span>实时行情 · 盘中兑底（腾讯行情）</div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>指数</th><th>最新</th><th>涨跌幅</th><th>来源</th></tr></thead>
+      <tbody id="w-live-tb"><tr><td colspan="4" style="color:var(--dim)">加载中…</td></tr></tbody>
+    </table></div>
+    <div class="bt-note" id="w-live-note">实时行情仅作盘中参考；四层策略信号基于 T-1 完整收盘快照，不以盘中价重算。</div>
+  </section>
+
+  <!-- ④ 策略口径说明 -->
+  <section>
+    <div class="sec-t"><span class="sec-n">④</span>四层策略口径说明</div>
+    <details>
+      <summary>这套天气是怎么算出来的（想深究再展开）</summary>
+      <div class="detail-body">
+        <div class="cond">
+          <div class="c"><div class="k">① 均线状态机</div><div class="v">MA5/10/20/60 排列与分位 → Z0 空仓 … Z5 满仓（<b>maPos</b> 0~1）</div></div>
+          <div class="c"><div class="k">② 量价网格C</div><div class="v">价格分位 × 量能分位 4×4 网格 → C0 清仓档 … C3 满仓档（<b>vpPos</b>）</div></div>
+          <div class="c"><div class="k">③ 均线粘合清仓</div><div class="v">20/60 均线粘合（带宽 &lt; 阈值）且量能萎缩 → 直接清仓防守（<b>sqClear</b>）</div></div>
+          <div class="c"><div class="k">④ 融合决策</div><div class="v">blendC 加权融合 + vetoMode=any 一票否决 → 最终仓位（<b>fuPos</b> / <b>fuBinding</b>）</div></div>
+        </div>
+        <div class="ov-note">固定口径：R0=1.0（基准满仓）· fuseW=0.5 · vpLevels=4 · vetoMode="any" · squeezeVeto=True · 粘合带宽阈值 0.8% · 过滤均线 20 日。5 个指数独立计算，互不联动。</div>
+      </div>
+    </details>
+    <details>
+      <summary>数据与免责说明</summary>
+      <div class="detail-body">
+        <ul class="rule">
+          <li>K 线与策略信号来自 <b>data/kline/index/*.parquet</b>（T-1 完整收盘），由 scripts/build_weather.py 预计算后注入本页。</li>
+          <li>覆盖：上证指数（000001）/ 深证成指（399001）/ 沪深300（000300）/ 创业板指（399006）/ 中证2000（932000）。</li>
+          <li>实时行情的 JSONP 直连腾讯行情接口；被浏览器安全策略拦截或超时时自动隐藏，不影响策略部分。</li>
+          <li>本页为策略研究与演示，不构成投资建议。</li>
+        </ul>
+      </div>
+    </details>
+  </section>
+</div>
+</div><!-- /wzone -->
+
+<script>
+(function(){
+  "use strict";
+  var WEATHER = /*__WEATHER__*/{};
+  var indices = (WEATHER && WEATHER.indices) ? WEATHER.indices : {};
+  var codes = Object.keys(indices);
+  var charts = {};        // code -> echarts instance（懒初始化，仅视图可见时创建）
+  var liveTimer = null;
+
+  // ---------- 工具 ----------
+  function f2(x){ return Number(x).toLocaleString("zh-CN",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+  function p0(x){ return Math.round(x*100); }
+  function pctStr(x, d){ d = d==null?2:d; return (x>0?"+":"") + Number(x).toFixed(d) + "%"; }
+
+  // 天气语义：融合层仓位 → 晴/多云/阴/雨 + 观望（否决）
+  function weatherOf(w){
+    if (!w) return {word:"—", cls:"w-veto", pos:0};
+    var p = w.fuPos || 0;
+    if (w.fuBinding === "否决") return {word:"观望", cls:"w-veto", pos:p};
+    if (p >= 0.99) return {word:"晴 · 满仓", cls:"w-hot", pos:p};
+    if (p >= 0.5)  return {word:"多云 · 重仓", cls:"w-warm", pos:p};
+    if (p > 0)     return {word:"阴 · 轻仓", cls:"w-cool", pos:p};
+    return {word:"雨 · 空仓防守", cls:"w-rain", pos:p};
+  }
+
+  // ---------- ① 总览卡片 ----------
+  function renderCards(){
+    var grid = document.getElementById("w-grid");
+    if (!grid) return;
+    grid.innerHTML = codes.map(function(code){
+      var it = indices[code], w = it.w || {}, wt = weatherOf(w);
+      var tags = (w.vpTags || []).slice(0,2).map(function(t){
+        return '<span class="w-tag' + (/清仓|背离|破位/.test(t) ? " w-danger" : "") + '">' + t + '</span>';
+      }).join("");
+      if (w.sqClear) tags += '<span class="w-tag w-danger">粘合清仓</span>';
+      var cls = (w.pct || 0) > 0 ? "w-live-up" : (w.pct < 0 ? "w-live-down" : "");
+      return '<div class="w-card" data-wcode="'+code+'">' +
+        '<div class="w-top"><span class="w-name">'+it.name+'</span><span class="w-code">'+code+'</span></div>' +
+        '<div class="w-price">'+f2(w.price)+' <span class="w-pct '+cls+'">'+pctStr(w.pct)+'</span></div>' +
+        '<div class="w-row"><span class="w-badge '+wt.cls+'">'+wt.word+'</span><span class="w-pos">融合仓位 '+p0(wt.pos)+'%</span></div>' +
+        '<div class="w-tags">'+tags+'</div>' +
+        '</div>';
+    }).join("");
+    grid.querySelectorAll(".w-card").forEach(function(card){
+      card.addEventListener("click", function(){
+        var cc = card.getAttribute("data-wcode");
+        grid.querySelectorAll(".w-card").forEach(function(c){ c.classList.remove("sel"); });
+        card.classList.add("sel");
+        var det = document.getElementById("w-det-"+cc);
+        if (det) det.open = true;
+        det.scrollIntoView({behavior:"smooth", block:"start"});
+        setTimeout(function(){ ensureChart(cc); }, 60);
+      });
+    });
+  }
+
+  // ---------- ② 明细（details + 图表懒初始化） ----------
+  function cell(title, body, ok, near){
+    if (ok === undefined) ok = false; if (near === undefined) near = false;
+    var cls = ok ? " ok" : (near ? " near" : "");
+    return '<div class="c'+cls+'"><div class="k">'+title+'</div><div class="v">'+body+'</div></div>';
+  }
+  function renderDetails(){
+    var wrap = document.getElementById("w-dets");
+    if (!wrap) return;
+    wrap.innerHTML = codes.map(function(code){
+      var it = indices[code], w = it.w || {}, wt = weatherOf(w);
+      var maOk = (w.maPos||0) >= 0.5, maNear = (w.maPos||0) >= 0.3;
+      var vpOk = (w.vpPos||0) >= 0.5, vpNear = (w.vpPos||0) >= 0.3;
+      var sqBody = w.sqClear ? "<b style='color:#C0392B'>已触发 · 清仓防守</b>" : "未触发";
+      var tags = (w.vpTags||[]).map(function(t){ return "<span class='w-tag'>"+t+"</span>"; }).join("");
+      return '<details class="w-det" id="w-det-'+code+'">' +
+        '<summary><span class="sum-t"><b>'+it.name+'</b> · '+wt.word+' · 融合仓位 <b>'+p0(wt.pos)+'%</b></span><span class="sum-n">'+w.date+'</span></summary>' +
+        '<div class="detail-body">' +
+          '<div class="w-chart" id="w-chart-'+code+'"></div>' +
+          '<div class="cond">' +
+            cell("① 均线状态机", (w.maNote||"—").replace(/^均线状态机\s*/,"") + "（仓位 "+p0(w.maPos||0)+"%）", maOk, maNear) +
+            cell("② 量价网格C", (w.vpNote||"—").replace(/^量价网格 C触发:\s*/,"") + "（仓位 "+p0(w.vpPos||0)+"%）", vpOk, vpNear) +
+            cell("③ 均线粘合清仓", sqBody, false, false) +
+            cell("④ 融合决策", (w.fuBinding||"—") + " · 仓位 " + p0(w.fuPos||0) + "%", (w.fuPos||0) > 0, false) +
+          '</div>' +
+          (tags ? '<div style="margin-top:8px">'+tags+'</div>' : "") +
+          '<div class="gap-line">'+ (w.fuNote || "") +'</div>' +
+        '</div></details>';
+    }).join("");
+    wrap.querySelectorAll("details.w-det").forEach(function(d){
+      d.addEventListener("toggle", function(){
+        if (d.open) setTimeout(function(){ ensureChart(d.id.replace("w-det-","")); window.dispatchEvent(new Event("resize")); }, 30);
+      });
+    });
+  }
+
+  // ---------- ECharts：K线 + MA5/10/20/60 + 成交量 ----------
+  function sma(src, n){
+    var out = [], s = 0;
+    for (var i=0;i<src.length;i++){ s += src[i]; if (i>=n) s -= src[i-n]; out.push(i>=n-1 ? +(s/n).toFixed(2) : null); }
+    return out;
+  }
+  function ensureChart(code){
+    if (typeof echarts === "undefined") return;
+    var el = document.getElementById("w-chart-"+code);
+    if (!el || !el.offsetParent) return;      // 视图隐藏时 offsetParent=null，等可见再 init
+    if (charts[code]) { charts[code].resize(); return; }
+    var it = indices[code]; if (!it || !it.rows || !it.rows.length) return;
+    var dates = [], k = [], vols = [], close = [];
+    it.rows.forEach(function(r){
+      dates.push(r[0]);           // date
+      k.push([r[1], r[3], r[4], r[2]]);  // open, low, high, close
+      vols.push(r[5]); close.push(r[2]);
+    });
+    var chart = echarts.init(el);
+    var up = "#E0443C", down = "#16A34A";
+    var opt = {
+      animation:false,
+      legend:{data:["K线","MA5","MA10","MA20","MA60"], left:10, top:4, textStyle:{fontSize:11, color:"#8AA3C0"}, itemWidth:14, itemHeight:8},
+      tooltip:{trigger:"axis", axisPointer:{type:"cross"}, backgroundColor:"rgba(22,50,79,.92)", borderWidth:0, textStyle:{fontSize:12}},
+      axisPointer:{link:[{xAxisIndex:"all"}]},
+      grid:[{left:56, right:14, top:30, height:"58%"},{left:56, right:14, top:"72%", height:"18%"}],
+      xAxis:[
+        {type:"category", data:dates, boundaryGap:true, axisLabel:{show:false}, axisLine:{lineStyle:{color:"#DDE8F4"}}},
+        {type:"category", gridIndex:1, data:dates, axisLabel:{color:"#8AA3C0", fontSize:10}, axisLine:{lineStyle:{color:"#DDE8F4"}}}
+      ],
+      yAxis:[
+        {scale:true, axisLabel:{color:"#8AA3C0", fontSize:10}, splitLine:{lineStyle:{color:"#EEF4FB"}}},
+        {gridIndex:1, axisLabel:{color:"#8AA3C0", fontSize:10}, splitLine:{show:false}}
+      ],
+      dataZoom:[{type:"inside", xAxisIndex:[0,1], start:60, end:100}, {type:"slider", xAxisIndex:[0,1], start:60, end:100, height:16, bottom:2, borderColor:"#DDE8F4", fillerColor:"rgba(43,108,176,.12)"}],
+      series:[
+        {name:"K线", type:"candlestick", data:k, itemStyle:{color:up, color0:down, borderColor:up, borderColor0:down}},
+        {name:"MA5", type:"line", data:sma(close,5), smooth:true, symbol:"none", lineStyle:{width:1, color:"#F59E0B"}},
+        {name:"MA10", type:"line", data:sma(close,10), smooth:true, symbol:"none", lineStyle:{width:1, color:"#3B82F6"}},
+        {name:"MA20", type:"line", data:sma(close,20), smooth:true, symbol:"none", lineStyle:{width:1, color:"#8B5CF6"}},
+        {name:"MA60", type:"line", data:sma(close,60), smooth:true, symbol:"none", lineStyle:{width:1, color:"#10B981"}},
+        {name:"成交量", type:"bar", xAxisIndex:1, yAxisIndex:1, data:vols, itemStyle:{color:function(p){ return close[p.dataIndex] >= (p.dataIndex?close[p.dataIndex-1]:0) ? up : down; }, opacity:.6}}
+      ]
+    };
+    chart.setOption(opt);
+    charts[code] = chart;
+  }
+
+  // ---------- ③ 实时行情兑底（qt.gtimg.cn JSONP） ----------
+  function updateLiveRow(sec, now, pct){
+    var code = null;
+    codes.forEach(function(c){ if (indices[c].secid === sec) code = c; });
+    if (!code) return;
+    var it = indices[code];
+    var cls = pct > 0 ? "w-live-up" : (pct < 0 ? "w-live-down" : "");
+    var tb = document.getElementById("w-live-tb");
+    if (tb) {
+      var row = document.getElementById("w-live-"+code);
+      var html = "<td><b>"+it.name+"</b> "+code+"</td><td>"+f2(now)+"</td><td class='"+cls+"'>"+(pct==null?"—":pctStr(pct))+"</td><td class='w-live-up'>腾讯实时</td>";
+      if (row) row.innerHTML = html; else tb.insertAdjacentHTML("beforeend", "<tr id='w-live-"+code+"'>"+html+"</tr>");
+    }
+    // 同步更新总览卡片（若有）
+    var card = document.querySelector('.w-card[data-wcode="'+code+'"]');
+    if (card) {
+      var p = card.querySelector(".w-price");
+      if (p) p.innerHTML = f2(now)+' <span class="w-pct '+cls+'">'+(pct==null?"—":pctStr(pct))+'</span>';
+    }
+  }
+  function loadLive(){
+    if (!codes.length) return;
+    var secids = codes.map(function(c){ return indices[c].secid; });
+    var s = document.createElement("script");
+    s.src = "https://qt.gtimg.cn/q=" + secids.join(",");
+    s.onerror = function(){ setLiveNote("实时行情接口不可用（网络受限），仅展示 T-1 策略快照"); };
+    document.body.appendChild(s);
+    // qt.gtimg 为纯数据脚本（赋值 window["v_*"]），不会主动回调 parseLive：
+    // 按间隔主动解析（幂等），拿到数据后补齐表格并停止
+    var tries = 0;
+    var tick = setInterval(function(){
+      tries++;
+      parseLive();
+      if (document.querySelectorAll("#w-live-tb tr[id^='w-live-']").length || tries >= 5) clearInterval(tick);
+    }, 800);
+    liveTimer = setTimeout(function(){
+      clearInterval(tick);
+      var any = false;
+      secids.forEach(function(sec){ if (typeof window["v_"+sec] === "string") any = true; });
+      if (!any) setLiveNote("实时行情超时/被拦截，仅展示 T-1 策略快照");
+    }, 4000);
+  }
+  function parseLive(){
+    codes.forEach(function(code){
+      var g = window["v_" + indices[code].secid];
+      if (typeof g !== "string") return;
+      var f = g.split("~");
+      var now = +f[3], prev = +f[4];
+      var pct = (f[32] !== undefined && !isNaN(+f[32])) ? +f[32] : (prev ? (now-prev)/prev*100 : null);
+      if (isNaN(now)) return;
+      updateLiveRow(indices[code].secid, now, pct);
+    });
+    setLiveNote("实时行情已加载（腾讯行情兑底，仅供盘中参考）");
+    var tb = document.getElementById("w-live-tb");
+    if (tb && !tb.querySelector("tr[id^='w-live-']")) setLiveNote("实时行情不可用（网络受限），仅展示 T-1 策略快照");
+  }
+  function setLiveNote(txt){ var n = document.getElementById("w-live-note"); if (n) n.textContent = txt; }
+  window.__weather_qt_cb = parseLive;   // 备用回调位（qt.gtimg 原生赋值即可，无需回调）
+
+  // ---------- 对外入口 ----------
+  window.WeatherEngine = {
+    show: function(){
+      Object.keys(charts).forEach(function(c){ charts[c].resize(); });
+      document.querySelectorAll("details.w-det[open]").forEach(function(d){
+        ensureChart(d.id.replace("w-det-",""));
+      });
+      // JSONP 可能在视图隐藏时已返回但错过 parseLive，进入视图时兜底补齐实时兑底
+      if (window["__weather_live_loaded"] !== true) parseLive();
+    },
+    refreshLive: function(){ parseLive(); }
+  };
+  // parseLive 成功后标记，避免 show() 反复触发
+  var __srcParseLive = parseLive;
+  parseLive = function(){
+    __srcParseLive();
+    if (document.querySelectorAll("#w-live-tb tr[id^='w-live-']").length) window["__weather_live_loaded"] = true;
+  };
+
+  // ---------- 初始化 ----------
+  document.addEventListener("DOMContentLoaded", function(){
+    if (codes.length) {
+      document.getElementById("w-date").textContent = WEATHER.data_date || "—";
+      document.getElementById("w-gen").textContent = (WEATHER.gen_time || "—").replace("T", " ");
+      document.getElementById("w-count").textContent = codes.length;
+      renderCards(); renderDetails(); loadLive();
+    } else {
+      document.getElementById("w-missing").style.display = "block";
+      document.getElementById("w-body").style.display = "none";
+    }
+  });
+})();
+</script>
