@@ -160,7 +160,7 @@ jobs:
         run: |
           python3 - <<'EOF'
           import json, os, re, urllib.request
-          url = "https://945q5w.gicp.fun"
+          url = "https://hci3bx.gicp.fun"   # 回退：正常以 data/hsk-resource.json 持久化 URL 为准
           if os.path.exists("data/hsk-resource.json"):
               rec = json.load(open("data/hsk-resource.json", encoding="utf-8"))
               url = rec.get("url", url)
