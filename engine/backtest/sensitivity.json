@@ -1,0 +1,207 @@
+{
+ "baseline": {
+  "total": 1.455,
+  "ann": 0.0977,
+  "sharpe": 0.6054,
+  "mdd": -0.3246,
+  "n_trades": 55,
+  "os": 27
+ },
+ "sensitivity": [
+  {
+   "param": "J_LOW",
+   "value": 0.5,
+   "total": 1.455,
+   "ann": 0.0977,
+   "sharpe": 0.6054,
+   "mdd": -0.3246,
+   "n_trades": 55,
+   "os": 27
+  },
+  {
+   "param": "J_LOW",
+   "value": 2,
+   "total": 1.458,
+   "ann": 0.0979,
+   "sharpe": 0.6012,
+   "mdd": -0.3246,
+   "n_trades": 59,
+   "os": 29
+  },
+  {
+   "param": "J_HIGH",
+   "value": 90,
+   "total": 1.455,
+   "ann": 0.0977,
+   "sharpe": 0.6054,
+   "mdd": -0.3246,
+   "n_trades": 55,
+   "os": 27
+  },
+  {
+   "param": "J_HIGH",
+   "value": 100,
+   "total": 1.455,
+   "ann": 0.0977,
+   "sharpe": 0.6054,
+   "mdd": -0.3246,
+   "n_trades": 55,
+   "os": 27
+  },
+  {
+   "param": "Y_DOWN",
+   "value": 15,
+   "total": 1.5597,
+   "ann": 0.1025,
+   "sharpe": 0.6227,
+   "mdd": -0.3113,
+   "n_trades": 62,
+   "os": 31
+  },
+  {
+   "param": "Y_DOWN",
+   "value": 25,
+   "total": 1.455,
+   "ann": 0.0977,
+   "sharpe": 0.6054,
+   "mdd": -0.3246,
+   "n_trades": 55,
+   "os": 27
+  },
+  {
+   "param": "X_UP",
+   "value": 15,
+   "total": 1.1672,
+   "ann": 0.0836,
+   "sharpe": 0.5421,
+   "mdd": -0.3246,
+   "n_trades": 58,
+   "os": 27
+  },
+  {
+   "param": "X_UP",
+   "value": 25,
+   "total": 1.1424,
+   "ann": 0.0823,
+   "sharpe": 0.5231,
+   "mdd": -0.3246,
+   "n_trades": 52,
+   "os": 27
+  },
+  {
+   "param": "RSI_OS",
+   "value": 30,
+   "total": 1.4552,
+   "ann": 0.0977,
+   "sharpe": 0.6063,
+   "mdd": -0.3284,
+   "n_trades": 53,
+   "os": 26
+  },
+  {
+   "param": "RSI_OS",
+   "value": 40,
+   "total": 1.3057,
+   "ann": 0.0906,
+   "sharpe": 0.5604,
+   "mdd": -0.3304,
+   "n_trades": 63,
+   "os": 32
+  },
+  {
+   "param": "HOLD_DAYS",
+   "value": 45,
+   "total": 1.3126,
+   "ann": 0.0909,
+   "sharpe": 0.5702,
+   "mdd": -0.3194,
+   "n_trades": 63,
+   "os": 30
+  },
+  {
+   "param": "HOLD_DAYS",
+   "value": 75,
+   "total": 1.3852,
+   "ann": 0.0945,
+   "sharpe": 0.5919,
+   "mdd": -0.3294,
+   "n_trades": 51,
+   "os": 26
+  },
+  {
+   "param": "SLIPPAGE_BPS",
+   "value": 2,
+   "total": 1.4664,
+   "ann": 0.0983,
+   "sharpe": 0.6089,
+   "mdd": -0.324,
+   "n_trades": 55,
+   "os": 27
+  },
+  {
+   "param": "SLIPPAGE_BPS",
+   "value": 10,
+   "total": 1.4361,
+   "ann": 0.0969,
+   "sharpe": 0.5995,
+   "mdd": -0.3256,
+   "n_trades": 55,
+   "os": 27
+  },
+  {
+   "param": "FIN_RATE",
+   "value": 0.05,
+   "total": 1.4856,
+   "ann": 0.0992,
+   "sharpe": 0.6147,
+   "mdd": -0.3227,
+   "n_trades": 55,
+   "os": 27
+  },
+  {
+   "param": "FIN_RATE",
+   "value": 0.09,
+   "total": 1.4244,
+   "ann": 0.0963,
+   "sharpe": 0.5961,
+   "mdd": -0.3265,
+   "n_trades": 55,
+   "os": 27
+  }
+ ],
+ "walk_forward": [
+  {
+   "period": "2016-2019",
+   "start": "2016-09-08",
+   "end": "2019-12-31",
+   "total": 0.2035,
+   "ann": 0.0595,
+   "sharpe": 0.4512,
+   "mdd": -0.3246,
+   "n_trades": 14,
+   "os": 6
+  },
+  {
+   "period": "2020-2022",
+   "start": "2020-01-02",
+   "end": "2022-12-30",
+   "total": 0.3134,
+   "ann": 0.099,
+   "sharpe": 0.5599,
+   "mdd": -0.1816,
+   "n_trades": 18,
+   "os": 10
+  },
+  {
+   "period": "2023-2026",
+   "start": "2023-01-03",
+   "end": "2026-09-08",
+   "total": 0.5046,
+   "ann": 0.1223,
+   "sharpe": 0.751,
+   "mdd": -0.196,
+   "n_trades": 25,
+   "os": 11
+  }
+ ]
+}

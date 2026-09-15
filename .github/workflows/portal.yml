@@ -31,19 +31,10 @@ jobs:
       run:
         working-directory: quant-data
     steps:
-      - name: Checkout quant-data
+      - name: Checkout quant-data (single repo, engine included)
         uses: actions/checkout@v4
         with:
           path: quant-data
-
-      # gen_payload.py 依赖 red-dividend-strategy 引擎（backtest/engine.py v7.12 + update.py
-      # + sector_*），且路径约定为 sibling（quant-data/../red-dividend-strategy）
-      - name: Checkout red-dividend-strategy (engine sibling)
-        uses: actions/checkout@v4
-        with:
-          repository: andy-develop/red-dividend-strategy
-          path: red-dividend-strategy
-          fetch-depth: 1
 
       - name: Setup Python
         uses: actions/setup-python@v5

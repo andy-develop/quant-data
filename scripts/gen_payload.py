@@ -9,10 +9,10 @@
   - snapshot/etf_<day>.parquet / index_<day>.parquet → morning 上午实时段（11:30 快照）
   - factors/stock.parquet + meta/stocks.parquet      → 选股 stocks + factors
 
-复用 red-dividend-strategy 统一引擎（代码单份、口径与产品完全一致）：
-  - backtest/engine.py：四态仓位机（默认=红利低波；make_params 变体=沪深300）
-  - update.py：build_snapshot / build_backtest_payload / trade_day_info / validate_data
-  - sector_engine.py + sector_universe.py + sector_update.build_sector_payload：行业轮动
+复用仓库内 engine/ 统一引擎（原 red-dividend-strategy，代码单份、口径与产品完全一致）：
+  - engine/backtest/engine.py：四态仓位机（默认=红利低波；make_params 变体=沪深300）
+  - engine/update.py：build_snapshot / build_backtest_payload / trade_day_info / validate_data
+  - engine/sector_engine.py + engine/sector_universe.py + engine/sector_update.build_sector_payload：行业轮动
 
 输出（data/payload/，供 quant-portal/build_portal.py 消费）：
   - hl.json       {"snapshot","backtest","params"}      红利低波
@@ -33,9 +33,9 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common as C  # noqa: E402
 
-# ---- 复用 red-dividend-strategy 引擎（数据仓库相邻目录） ----
-RED = os.path.join(C.BASE, "..", "red-dividend-strategy")
-# 注意顺序：必须先插 backtest 再插 RED，否则顶层 v7.7 旧 engine.py 会遮蔽 backtest/engine.py
+# ---- 复用仓库内 engine/ 引擎（原 red-dividend-strategy 迁入，单仓库无 sibling 依赖） ----
+RED = os.path.join(C.BASE, "engine")
+# 注意顺序：必须先插 backtest 再插 RED，否则 engine/ 顶层若出现 engine.py 会遮蔽 backtest/engine.py
 sys.path.insert(0, RED)
 sys.path.insert(0, os.path.join(RED, "backtest"))
 
