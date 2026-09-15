@@ -45,3 +45,9 @@
 {"event": "fetch_stock", "at": "2026-09-15 11:42", "batch": 0, "fq": 117, "ok": 0, "fail": 117, "sec": 140, "end": "2026-09-14"}
 {"event": "housekeeping", "at": "2026-09-15 11:42", "data_mb": 182.0}
 {"event": "fetch_stock", "at": "2026-09-15 11:47", "batch": 0, "fq": 117, "ok": 0, "fail": 117, "sec": 142, "end": "2026-09-14"}
+{"event": "fetch_index", "at": "2026-09-15 12:13", "backfill": false}
+{"event": "fetch_etf", "at": "2026-09-15 12:13"}
+{"event": "fetch_stock", "at": "2026-09-15 12:16", "batch": 0, "fq": 117, "ok": 0, "fail": 117, "sec": 140, "end": "2026-09-14"}
+{"event": "fetch_snapshot", "at": "2026-09-15 12:16", "day": "20260915", "etf": 32, "index": 5}
+{"event": "build_factors", "at": "2026-09-15 12:16", "stock_rows": 3600526}
+{"event": "gen_payload", "at": "2026-09-15 12:16", "hl_last": "2026-09-14", "hs300_last": "2026-09-14"}
