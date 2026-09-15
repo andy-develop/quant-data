@@ -39,6 +39,7 @@ BACKFILL_DAYS = 365 * 3
 FQ_WORKERS = 2         # fqkline 逐股并发
 MIN_INTERVAL = 0.4     # 全局最小请求间隔(s) → ≤9000 请求/小时，远低于 WAF 触发量
 WAF_ALERT = 8          # 连续失败达此值 → 视为被风控，退避 60s
+WAF_MAX_ROUNDS = 3     # 退避轮数上限：持续被风控则中止，避免空转烧 CI 时间
 BATCH_SIZE = 60        # qt.gtimg.cn 单请求最多拼接股票数
 
 # 全局限速 + 连续失败计数
@@ -46,6 +47,7 @@ _rate_lock = threading.Lock()
 _last_req = 0.0
 _fail_lock = threading.Lock()
 _consec_fail = 0
+_backoff_rounds = 0
 
 _tl = threading.local()
 
@@ -61,12 +63,17 @@ def _pace() -> None:
 
 
 def _waf_backoff() -> None:
-    global _consec_fail
+    global _consec_fail, _backoff_rounds
     with _fail_lock:
         _consec_fail += 1
         if _consec_fail >= WAF_ALERT:
             _consec_fail = 0
-            print(f"  ... 连续失败 {WAF_ALERT} 次，疑似被风控，退避 60s")
+            _backoff_rounds += 1
+            if _backoff_rounds > WAF_MAX_ROUNDS:
+                raise SystemExit(
+                    f"[fetch_stock] 连续被风控 {WAF_MAX_ROUNDS} 轮退避仍失败，中止以避免空转。"
+                    " 可稍后重试或检查腾讯接口可用性。")
+            print(f"  ... 连续失败 {WAF_ALERT} 次，疑似被风控，退避 60s（第 {_backoff_rounds} 轮）")
             time.sleep(60)
 
 
