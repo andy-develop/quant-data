@@ -80,3 +80,10 @@
 {"event": "fetch_stock", "at": "2026-09-16 08:54", "batch": 4, "fq": 121, "ok": 4, "fail": 121, "sec": 145, "end": "2026-09-15"}
 {"event": "housekeeping", "at": "2026-09-16 08:54", "data_mb": 185.0}
 {"event": "build_weather", "at": "2026-09-16 08:54", "indices": ["000001", "000300", "399001", "399006", "932000"], "size_kb": 822.9}
+{"event": "fetch_index", "at": "2026-09-16 09:00", "backfill": false}
+{"event": "fetch_etf", "at": "2026-09-16 09:00"}
+{"event": "fetch_stock", "at": "2026-09-16 09:02", "batch": 4, "fq": 121, "ok": 4, "fail": 121, "sec": 145, "end": "2026-09-15"}
+{"event": "fetch_snapshot", "at": "2026-09-16 09:03", "day": "20260916", "etf": 32, "index": 5}
+{"event": "build_factors", "at": "2026-09-16 09:03", "stock_rows": 3605634}
+{"event": "gen_payload", "at": "2026-09-16 09:03", "hl_last": "2026-09-15", "hs300_last": "2026-09-15"}
+{"event": "build_weather", "at": "2026-09-16 09:03", "indices": ["000001", "000300", "399001", "399006", "932000"], "size_kb": 822.9}
