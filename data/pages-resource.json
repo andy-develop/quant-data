@@ -1,6 +1,5 @@
 {
   "url": "https://andy-develop.github.io/quant-data/",
-  "data_date": null,
-  "content_sha": null,
-  "note": "由 portal.yml 构建后覆写；项目站 URL 稳定不漂移"
+  "data_date": "2026-09-15|2026-09-15|2026-09-15|2026-09-15|2026-09-15",
+  "content_sha": "b71954f7e0ef8089162dd58bab263881082e05860c73414018643e220f46d59e"
 }
