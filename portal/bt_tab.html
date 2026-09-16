@@ -1,0 +1,2400 @@
+<!-- ============================================================
+  大盘天气 · 择时回测（bt_tab.html）
+  移植自 ai-timing-backtest/index.html；取数优先 TIMING_DB（parquet），
+  缺失时回退腾讯/东财/新浪/中证网络源。注入点 /*__TIMING_DB__*/{}
+  ============================================================ -->
+<style>
+
+  .btzone{
+    --bg:#f4f6f9;
+    --card:#ffffff;
+    --ink:#1f2937;
+    --ink-2:#6b7280;
+    --line:#e5e7eb;
+    --brand:#1e3a5f;
+    --brand-2:#2563eb;
+    --up:#e0434b;      /* A股红涨 */
+    --down:#14a37f;    /* A股绿跌 */
+    --amber:#f5a623;
+    --violet:#8b5cf6;
+    --shadow:0 1px 3px rgba(16,24,40,.08),0 4px 16px rgba(16,24,40,.06);
+    --radius:14px;
+  }
+  .btzone,.btzone *{box-sizing:border-box}
+  
+  .btzone .wrap{max-width:1320px;margin:0 auto;padding:24px 20px 60px}
+  .btzone header.top{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;padding:6px 2px 18px}
+  .btzone header.top h1{font-size:22px;font-weight:800;letter-spacing:.5px;color:var(--brand)}
+  .btzone header.top .tag{font-size:13px;color:var(--ink-2);background:#fff;border:1px solid var(--line);border-radius:999px;padding:3px 12px}
+  .btzone .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px}
+  .btzone .ctrl{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:16px;align-items:end;margin-bottom:14px}
+  .btzone .field{display:flex;flex-direction:column;gap:6px}
+  .btzone .field label{font-size:12.5px;font-weight:600;color:var(--ink-2)}
+  .btzone .field input,.btzone .field select{height:42px;border:1px solid var(--line);border-radius:10px;padding:0 12px;font-size:15px;color:var(--ink);background:#fff;outline:none;transition:border-color .15s,box-shadow .15s}
+  .btzone .field input:focus,.btzone .field select:focus{border-color:var(--brand-2);box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+  .btzone .btn{height:42px;border:0;border-radius:10px;background:var(--brand-2);color:#fff;font-size:15px;font-weight:700;cursor:pointer;padding:0 22px;letter-spacing:2px;transition:background .15s,transform .05s}
+  .btzone .btn:hover{background:#1d4ed8}
+  .btzone .btn:active{transform:translateY(1px)}
+  .btzone .btn:disabled{background:#9db3dc;cursor:not-allowed}
+  .btzone .hint{font-size:12px;color:var(--ink-2);margin-top:2px}
+  .btzone .banner{display:none;margin:0 0 16px;padding:12px 16px;border-radius:10px;font-size:14px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c}
+  .btzone .banner.show{display:block}
+  .btzone .banner.ok{background:#ecfdf5;border-color:#a7f3d0;color:#047857}
+  .btzone .loading{display:none;align-items:center;gap:10px;padding:14px 16px;color:var(--ink-2);font-size:14px}
+  .btzone .loading.show{display:flex}
+  .btzone .spinner{width:18px;height:18px;border:2.5px solid #d1d5db;border-top-color:var(--brand-2);border-radius:50%;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .btzone .results{display:none;margin-top:20px}
+  .btzone .results.show{display:block}
+  .btzone .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+  .btzone .stat{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px}
+  .btzone .stat .k{font-size:12px;color:var(--ink-2);margin-bottom:6px;white-space:nowrap}
+  .btzone .stat .v{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
+  .btzone .stat .s{font-size:11.5px;color:var(--ink-2);margin-top:4px}
+  .btzone .pos,.btzone .neg{font-weight:700}
+  .btzone .pos{color:var(--up)}
+  .btzone .neg{color:var(--down)}
+  .btzone .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 18px 12px;margin-bottom:16px}
+  .btzone .card h3{font-size:15px;font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .btzone .card .sub{font-size:12px;color:var(--ink-2);margin-bottom:12px}
+  .btzone .chart{width:100%;height:420px}
+  .btzone .chart.short{height:320px}
+  .btzone table{width:100%;border-collapse:collapse;font-size:13px}
+  .btzone th,.btzone td{padding:9px 10px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+  .btzone th{color:var(--ink-2);font-weight:600;background:#fafbfc;position:sticky;top:0}
+  .btzone th:first-child,.btzone td:first-child{text-align:left}
+  .btzone td.up{color:var(--up);font-weight:700}
+  .btzone td.down{color:var(--down);font-weight:700}
+  .btzone .tbl-wrap{max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:10px}
+  .btzone .badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:700}
+  .btzone .badge.buy{background:#fdecec;color:var(--up)}
+  .btzone .badge.sell{background:#e6f6f1;color:var(--down)}
+  .btzone .badge.sig{background:#eef2ff;color:#4338ca}
+  .btzone .badge.ma{background:#e8f0fe;color:#1d4ed8}
+  .btzone .badge.vp{background:#fff4e2;color:#b45309}
+  .btzone .badge.fu{background:#f3ecfe;color:#6d28d9}
+  .btzone .badge.sq{background:#e0f5f1;color:#0f766e}
+  .btzone /* 对比总览表 */
+  .btzone table.cmp{font-size:13.5px}
+  .btzone table.cmp th,.btzone table.cmp td{padding:10px 12px}
+  .btzone table.cmp tbody tr:hover{background:#f8fafc}
+  .btzone table.cmp .c-name{color:var(--ink-2);font-weight:600;text-align:left}
+  .btzone table.cmp th.ma{color:#1d4ed8}
+  .btzone table.cmp th.vp{color:#b45309}
+  .btzone table.cmp th.fu{color:#6d28d9}
+  .btzone table.cmp th.sq{color:#0f766e}
+  .btzone table.cmp th.bh{color:#6b7280}
+  .btzone .win{font-weight:800}
+  .btzone .legend-inline{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--ink-2)}
+  .btzone .legend-inline i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+  .btzone .seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;margin-left:auto}
+  .btzone .seg button{border:0;background:#fff;color:var(--ink-2);font-size:12px;font-weight:700;padding:5px 12px;cursor:pointer}
+  .btzone .seg button.on{background:var(--brand-2);color:#fff}
+  .btzone details{font-size:13px;color:var(--ink-2)}
+  .btzone details summary{cursor:pointer;font-weight:600;color:var(--ink);padding:4px 0}
+  .btzone details ul{margin:8px 0 4px 18px}
+  .btzone details li{margin:4px 0}
+  .btzone code{background:#f1f5f9;padding:1px 6px;border-radius:6px;font-size:12px}
+  .btzone .lead-q{font-size:15.5px;font-weight:800;color:var(--brand);margin:4px 0 14px;line-height:1.7}
+  .btzone .lede-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}
+  .btzone .lede{border:1px solid var(--line);border-left-width:4px;border-radius:10px;padding:12px 14px;background:#fbfcfe}
+  .btzone .lede b{display:block;font-size:14px;margin-bottom:6px}
+  .btzone .lede span{font-size:13px;color:var(--ink-2);line-height:1.9;display:block}
+  .btzone .lede em{font-style:normal;font-weight:800;color:var(--ink)}
+  .btzone .lede.ma{border-left-color:#2563eb}.btzone .lede.ma b{color:#1d4ed8}
+  .btzone .lede.vp{border-left-color:#f5a623}.btzone .lede.vp b{color:#b45309}
+  .btzone .lede.sq{border-left-color:#0d9488}.btzone .lede.sq b{color:#0f766e}
+  .btzone .lede.fu{border-left-color:#8b5cf6}.btzone .lede.fu b{color:#6d28d9}
+  .btzone figure{margin:20px 0 8px}
+  .btzone figure figcaption{font-size:13px;font-weight:800;color:var(--ink);margin-bottom:8px}
+  .btzone figure svg{width:100%;height:auto;display:block;border:1px solid var(--line);border-radius:12px;background:#fcfdff}
+  .btzone figure .fnote{font-size:12.5px;color:var(--ink-2);line-height:1.85;margin-top:8px}
+  .btzone figure .fnote b{color:var(--ink)}
+  .btzone .logic-sec{margin:22px 0 6px;padding-top:16px;border-top:1px dashed var(--line)}
+  .btzone .logic-sec h4{font-size:15px;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:8px}
+  .btzone .logic-sec h4 i{width:6px;height:17px;border-radius:3px;display:inline-block;flex:none}
+  .btzone .logic-sec p{font-size:13.5px;color:#374151;line-height:1.9;margin-bottom:8px}
+  .btzone .logic-sec p b{color:var(--ink)}
+  .btzone .logic-sec ol,.btzone .logic-sec ul{margin:6px 0 8px 20px;font-size:13.5px;color:#374151;line-height:1.9}
+  .btzone .logic-sec li{margin:3px 0}
+  .btzone .logic-sec li b{color:var(--ink)}
+  .btzone table.kv{font-size:13px;margin:8px 0 4px}
+  .btzone table.kv th,.btzone table.kv td{white-space:normal;text-align:left;padding:8px 10px}
+  .btzone table.kv td:first-child{color:var(--ink-2);width:132px}
+  .btzone .warnbox{border-left:3px solid #b45309;background:#fffbeb;padding:10px 12px;margin:10px 0 4px;font-size:13px;line-height:1.9;color:#7c2d12;border-radius:0 8px 8px 0}
+  .btzone .warnbox b{color:#b45309}
+  .btzone .tech details{margin-top:4px}
+  .btzone .tech details summary{font-size:13.5px;font-weight:800;color:var(--brand)}
+  .btzone .tech details ul{margin:8px 0 2px 18px}
+  .btzone .tech details li{font-size:13px;color:var(--ink-2);line-height:1.9;margin:5px 0}
+  .btzone .qa{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:10px 0 2px}
+  .btzone .qa>div{background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:11px 13px}
+  .btzone .qa b{display:block;font-size:12.5px;color:var(--brand-2);margin-bottom:6px;letter-spacing:1px}
+  .btzone .qa span{font-size:13px;color:#374151;line-height:1.9;display:block}
+  .btzone .qa span em{font-style:normal;font-weight:800;color:var(--ink);background:#eef2ff;padding:0 4px;border-radius:4px}
+  .btzone .idxcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(228px,1fr));gap:12px;margin:14px 0 4px}
+  .btzone .idxcard{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:#fbfcfe}
+  .btzone .idxcard b{display:block;font-size:14.5px;color:var(--brand);margin-bottom:6px}
+  .btzone .idxcard .big{font-size:22px;font-weight:800;line-height:1.3}
+  .btzone .idxcard .small{font-size:12px;color:var(--ink-2);line-height:1.7;margin-top:3px}
+  .btzone .idxcard .row2{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:#475569;margin-top:7px;border-top:1px dashed var(--line);padding-top:7px;flex-wrap:wrap}
+  .btzone table.cmp .idxname{font-weight:800;color:var(--brand);background:#f8fafc;vertical-align:middle;text-align:left}
+  .btzone table.cmp tr.bhrow{background:#f8fafc}
+  .btzone table.cmp tr.bhrow td{font-weight:700}
+  .btzone .lgrow{display:flex;flex-wrap:wrap;gap:16px;align-items:center}
+  .btzone .lgrow .lg{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-2)}
+  .btzone .lgrow .lg i{width:12px;height:12px;border-radius:3px;display:inline-block}
+  .btzone .preset-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px}
+  .btzone .preset-label{font-size:12.5px;font-weight:600;color:var(--ink-2)}
+  .btzone .presets{display:flex;gap:6px;flex-wrap:wrap}
+  .btzone .pre{height:42px;border:1px solid var(--line);background:#fff;border-radius:10px;padding:0 11px;font-size:13px;font-weight:600;color:var(--ink-2);cursor:pointer;transition:border-color .15s,color .15s,background .15s}
+  .btzone .pre:hover{border-color:var(--brand-2);color:var(--brand-2)}
+  .btzone .pre.on{background:var(--brand-2);border-color:var(--brand-2);color:#fff}
+  .btzone .banner.warn{background:#fffbeb;border-color:#fcd34d;color:#b45309}
+  .btzone .sub.warnline{color:#b45309}
+  .btzone footer{margin-top:28px;font-size:12px;color:var(--ink-2);text-align:center}
+  @media(max-width:720px){.btzone .chart{height:330px}.btzone .chart.short{height:280px}}
+
+.btzone .wrap{max-width:100%;padding:0 0 24px}
+.btzone header.top{padding-top:0}
+</style>
+<div class="btzone">
+<div class="wrap">
+
+  <header class="top">
+    <h1>AI仓位 · 大盘择时双策略对比回测</h1>
+    <span class="tag">均线策略 · 量价策略 · 融合策略</span>
+  </header>
+
+  <!-- ===== 控制面板 ===== -->
+  <section class="panel">
+    <div class="ctrl">
+      <div class="field">
+        <label for="code">交易标的（股票代码）</label>
+        <input id="code" type="text" placeholder="如 600519 / 000001 / 300750" value="600519" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="anchor">择时锚定指数</label>
+        <select id="anchor">
+          <option value="sh000001" selected>上证指数 (sh000001)</option>
+          <option value="sz399001">深证成指 (sz399001)</option>
+          <option value="sh000300">沪深300 (sh000300)</option>
+          <option value="sz399006">创业板指 (sz399006)</option>
+          <option value="sh932000">中证2000 (932000)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="start">回测开始</label>
+        <input id="start" type="date" value="2025-09-15">
+      </div>
+      <div class="field">
+        <label for="end">回测结束</label>
+        <input id="end" type="date" value="2026-09-15">
+      </div>
+      <div class="field">
+        <label>&nbsp;</label>
+        <button id="run" class="btn">开始回测</button>
+      </div>
+    </div>
+
+    <div class="preset-row">
+      <span class="preset-label">快捷区间</span>
+      <div class="presets">
+        <button type="button" class="pre" data-preset="10">近 10 年</button>
+        <button type="button" class="pre" data-preset="5">近 5 年</button>
+        <button type="button" class="pre" data-preset="3">近 3 年</button>
+        <button type="button" class="pre on" data-preset="1">近 1 年</button>
+      </div>
+    </div>
+    <div class="hint">
+      一次回测同时输出 <b>均线策略</b>、<b>量价策略</b>、<b>融合策略</b>三条仓位曲线，并与买入持有基准对比。
+      信号按当日收盘计算、次日生效，不含手续费与滑点。融合规则已固定为「<b>均线 × 50% + 量价 × 50%，任一条空仓即清仓</b>」，
+      不需要再选参数；每条策略的具体逻辑见页面底部「<b>策略逻辑与口径说明</b>」。<br>
+      区间默认取<b>最近 1 年</b>（按打开页面的当天滚动计算），也可用下方「快捷区间」一键切换。
+    </div>
+    <div id="banner" class="banner"></div>
+    <div id="dataNote" class="banner warn"></div>
+    <div id="loading" class="loading"><span class="spinner"></span><span id="loadingText">正在拉取行情数据…</span></div>
+  </section>
+
+  <!-- ===== 结果区 ===== -->
+  <section id="results" class="results">
+
+    <div class="card">
+      <h3>策略对比总览</h3>
+      <div class="sub" id="cmpSub"></div>
+      <div class="sub" id="cmpCoverage" style="margin-top:6px"></div>
+      <div class="hint" style="margin:6px 0 2px">「融合策略」= 策略三（均线 50% + 量价 50%）再叠加<b>策略四</b>（均线粘合且缩量时清仓）后的最终结果。</div>
+      <div class="sub" id="cmpSqueeze" style="margin-top:4px"></div>
+      <div style="overflow-x:auto"><table class="cmp" id="tblCmp">
+        <thead><tr><th>指标</th><th class="ma">均线策略</th><th class="vp">量价策略</th><th class="fu">融合策略</th><th class="bh">买入持有</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <div class="sub" id="cmpVerdict" style="margin-top:12px"></div>
+    </div>
+
+    <div id="stats" class="stats"></div>
+
+    <div class="card">
+      <h3>净值曲线对比</h3>
+      <div class="sub">区间起始净值归一为 1.00</div>
+      <div id="chartEq" class="chart"></div>
+    </div>
+
+    <div class="card">
+      <h3>回撤对比（水下图）</h3>
+      <div class="sub">各策略相对自身历史高点的回撤幅度</div>
+      <div id="chartDD" class="chart short"></div>
+    </div>
+
+    <div class="card">
+      <h3>仓位曲线对比</h3>
+      <div class="sub" id="posSub">融合口径见下方说明</div>
+      <div id="chartPos" class="chart short"></div>
+    </div>
+
+    <div class="card">
+      <h3>择时锚定指数 · 均线与买卖信号</h3>
+      <div class="sub" id="anchorTitle"></div>
+      <div id="chartAnchor" class="chart"></div>
+    </div>
+
+    <div class="card">
+      <h3>交易标的 · K线与成交信号
+        <span class="seg" id="stockSeg">
+          <button data-strat="ma" class="on">均线</button>
+          <button data-strat="vp">量价</button>
+          <button data-strat="fu">融合</button>
+        </span>
+      </h3>
+      <div class="sub" id="stockTitle"></div>
+      <div id="chartStock" class="chart"></div>
+    </div>
+
+    <div class="card">
+      <h3>择时信号明细（锚定指数，含全部策略）</h3>
+      <div class="sub">均线策略的档位切换、量价策略的网格触发、融合策略的合成与清仓信号合并展示</div>
+      <div class="sub warnline" id="evNote"></div>
+      <div class="tbl-wrap"><table id="tblEvents"><thead><tr><th>日期</th><th>策略</th><th>动作</th><th>仓位变化</th><th>指数点位</th><th>含义</th></tr></thead><tbody></tbody></table></div>
+    </div>
+
+    <div class="card">
+      <h3>股票成交明细（含全部策略）</h3>
+      <div class="sub">成交日期为信号生效日，成交价取当日收盘；本次盈亏按持仓均价估算</div>
+      <div class="sub warnline" id="tradeNote"></div>
+      <div class="tbl-wrap"><table id="tblTrades"><thead><tr><th>日期</th><th>策略</th><th>方向</th><th>驱动信号</th><th>成交价</th><th>仓位变化</th><th>本次盈亏</th><th>说明</th></tr></thead><tbody></tbody></table></div>
+    </div>
+
+    <div class="card">
+      <h3>策略逻辑与口径说明</h3>
+      <div class="sub">两条策略各自给出仓位建议 → 融合 → 再叠加一层清仓条件</div>
+
+      <p class="lead-q">一句话看懂：把「大盘择时」拆成两条独立的策略，各自给出一个仓位建议，最后按固定规则把两个建议合成最终仓位。</p>
+
+      <div class="lede-cards">
+        <div class="lede ma"><b>策略一 · 均线策略</b><span>看 5 / 10 / 20 日均线的排列。<br>均线转多、指数站上均线 → 加仓；均线转空 → 清仓。<br><em>给出 4 档：0 / 30 / 50 / 100%</em></span></div>
+        <div class="lede vp"><b>策略二 · 量价策略</b><span>看成交量与价格配不配合。<br>放量上涨才敢满仓；缩量上涨只给半仓；出现风险形态直接清仓。<br><em>给出 4 档：0 / 30 / 50 / 100%</em></span></div>
+        <div class="lede fu"><b>策略三 · 融合策略</b><span>把两条仓位策略合成一个。<br><b>均线 × 50% + 量价 × 50%</b>，<br>任一条喊空仓时<b>直接清仓</b>。</span></div>
+        <div class="lede sq"><b>策略四 · 均线粘合清仓</b><span>叠加在融合策略之上。<br>5 日线与 10 日线挤到一起、且成交量萎缩时，<br><em>在融合仓位之上再清一次仓</em>。</span></div>
+      </div>
+
+      <figure>
+        <figcaption>图 1 · 整体流程：两条仓位策略 → 融合 → 再叠加清仓条件</figcaption>
+        <svg viewBox="0 0 960 306" role="img" aria-label="整体流程：均线策略与量价策略给出仓位，融合策略加权合成，再叠加均线粘合清仓条件，得到最终仓位">
+          <defs>
+            <marker id="ar1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+            </marker>
+          </defs>
+          <rect x="16" y="118" width="134" height="84" rx="10" fill="#f1f5f9" stroke="#cbd5e1"/>
+          <text x="83" y="146" text-anchor="middle" font-size="13.5" font-weight="700" fill="#334155">输入数据</text>
+          <text x="83" y="168" text-anchor="middle" font-size="11.5" fill="#64748b">锚定指数日线</text>
+          <text x="83" y="188" text-anchor="middle" font-size="11.5" fill="#64748b">开高低收 + 量</text>
+
+          <rect x="176" y="38" width="200" height="74" rx="10" fill="#eff6ff" stroke="#93c5fd"/>
+          <text x="276" y="64" text-anchor="middle" font-size="13.5" font-weight="800" fill="#1d4ed8">策略一 · 均线策略</text>
+          <text x="276" y="86" text-anchor="middle" font-size="11.5" fill="#475569">看 5 / 10 / 20 日均线排列</text>
+
+          <rect x="176" y="130" width="200" height="74" rx="10" fill="#fffbeb" stroke="#fcd34d"/>
+          <text x="276" y="156" text-anchor="middle" font-size="13.5" font-weight="800" fill="#b45309">策略二 · 量价策略</text>
+          <text x="276" y="178" text-anchor="middle" font-size="11.5" fill="#475569">看成交量与价格是否配合</text>
+
+          <rect x="410" y="80" width="176" height="98" rx="10" fill="#f5f3ff" stroke="#c4b5fd"/>
+          <text x="498" y="106" text-anchor="middle" font-size="13.5" font-weight="800" fill="#6d28d9">策略三 · 融合</text>
+          <text x="498" y="130" text-anchor="middle" font-size="11.5" fill="#475569">均线 × 0.50</text>
+          <text x="498" y="150" text-anchor="middle" font-size="11.5" fill="#475569">+ 量价 × 0.50</text>
+          <text x="498" y="170" text-anchor="middle" font-size="11" font-weight="700" fill="#b45309">任一条空仓 → 清仓</text>
+
+          <rect x="618" y="80" width="172" height="98" rx="10" fill="#e0f5f1" stroke="#5eead4"/>
+          <text x="704" y="106" text-anchor="middle" font-size="13.5" font-weight="800" fill="#0f766e">策略四 · 叠加</text>
+          <text x="704" y="130" text-anchor="middle" font-size="11.5" fill="#475569">粘合 且 缩量</text>
+          <text x="704" y="150" text-anchor="middle" font-size="11.5" fill="#b91c1c">→ 在融合之上清仓</text>
+          <text x="704" y="170" text-anchor="middle" font-size="11" fill="#94a3b8">只在少数日子生效</text>
+
+          <rect x="822" y="92" width="122" height="74" rx="10" fill="#ecfdf5" stroke="#a7f3d0"/>
+          <text x="883" y="118" text-anchor="middle" font-size="13" font-weight="800" fill="#047857">最终仓位</text>
+          <text x="883" y="140" text-anchor="middle" font-size="11.5" fill="#475569">次日生效</text>
+          <text x="883" y="158" text-anchor="middle" font-size="11.5" fill="#475569">套用标的</text>
+
+          <path d="M150,152 C164,152 160,75 172,75" fill="none" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#ar1)"/>
+          <path d="M150,168 C164,168 160,167 172,167" fill="none" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#ar1)"/>
+          <path d="M376,75 C394,75 392,110 406,110" fill="none" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#ar1)"/>
+          <path d="M376,167 C394,167 392,150 406,150" fill="none" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#ar1)"/>
+          <path d="M586,129 L614,129" fill="none" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#ar1)"/>
+          <path d="M790,129 L818,129" fill="none" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#ar1)"/>
+
+          <text x="480" y="232" text-anchor="middle" font-size="12.5" fill="#475569">策略一 / 策略二 各自给出 0 / 30 / 50 / 100% 的仓位　→　策略三 加权合成　→　策略四 叠加一层清仓条件　→　最终仓位</text>
+          <text x="480" y="262" text-anchor="middle" font-size="12" fill="#94a3b8">另有「买入持有」作为对照基准：始终 100% 仓位，不做任何择时</text>
+        </svg>
+      </figure>
+
+      <!-- ============ 策略一 ============ -->
+      <div class="logic-sec">
+        <h4><i style="background:#2563eb"></i>策略一 · 均线策略</h4>
+        <div class="qa">
+          <div><b>是什么</b><span>只看锚定指数的 <em>5 日、10 日、20 日</em> 三根均线。三根线的排列与价格相对位置，决定四个仓位档位：0% / 30% / 50% / 100%。</span></div>
+          <div><b>为什么</b><span>均线是不同周期买入者的平均成本。价格站上均线、且短期均线在上方，说明资金在持续接盘。它反应慢，但<b>不容易在趋势中途乱动</b>。</span></div>
+          <div><b>影响了什么</b><span>仓位随趋势由空到满逐步变化：转多时先 30%、再 50%、最后 100%；一旦均线转空，<b>不论当时在哪一档都直接清仓到 0%</b>。</span></div>
+        </div>
+
+        <figure>
+          <figcaption>图 2 · 四个档位与切换条件</figcaption>
+          <svg viewBox="0 0 900 262" role="img" aria-label="均线策略的四个仓位档位与加仓、减仓、清仓路径">
+            <defs>
+              <marker id="arUp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" fill="#e0434b"/>
+              </marker>
+              <marker id="arDn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" fill="#14a37f"/>
+              </marker>
+              <marker id="arEsc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+              </marker>
+            </defs>
+
+            <path d="M740,100 C740,20 125,20 125,100" fill="none" stroke="#94a3b8" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arEsc)"/>
+            <text x="432" y="17" text-anchor="middle" font-size="12" font-weight="700" fill="#64748b">均线转空（5/10/20 空头，或 5 日线下穿 20 日线且当日跌超 1%）→ 从任何档位直接清仓</text>
+
+            <rect x="40" y="100" width="170" height="90" rx="10" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5"/>
+            <rect x="245" y="100" width="170" height="90" rx="10" fill="#fffbeb" stroke="#f5a623" stroke-width="1.5"/>
+            <rect x="450" y="100" width="170" height="90" rx="10" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.5"/>
+            <rect x="655" y="100" width="170" height="90" rx="10" fill="#fef2f2" stroke="#e0434b" stroke-width="1.5"/>
+
+            <text x="125" y="132" text-anchor="middle" font-size="15" font-weight="800" fill="#64748b">空仓</text>
+            <text x="125" y="162" text-anchor="middle" font-size="19" font-weight="800" fill="#475569">0%</text>
+            <text x="125" y="181" text-anchor="middle" font-size="11.5" fill="#94a3b8">均线走坏后等待</text>
+
+            <text x="330" y="132" text-anchor="middle" font-size="15" font-weight="800" fill="#b45309">轻仓</text>
+            <text x="330" y="162" text-anchor="middle" font-size="19" font-weight="800" fill="#b45309">30%</text>
+            <text x="330" y="181" text-anchor="middle" font-size="11.5" fill="#94a3b8">刚抄底 / 刚回补</text>
+
+            <text x="535" y="132" text-anchor="middle" font-size="15" font-weight="800" fill="#1d4ed8">半仓</text>
+            <text x="535" y="162" text-anchor="middle" font-size="19" font-weight="800" fill="#1d4ed8">50%</text>
+            <text x="535" y="181" text-anchor="middle" font-size="11.5" fill="#94a3b8">有效站上 20 日线</text>
+
+            <text x="740" y="132" text-anchor="middle" font-size="15" font-weight="800" fill="#c62f38">重仓</text>
+            <text x="740" y="162" text-anchor="middle" font-size="19" font-weight="800" fill="#c62f38">100%</text>
+            <text x="740" y="181" text-anchor="middle" font-size="11.5" fill="#94a3b8">股价 &gt; 5 &gt; 10 &gt; 20 多头排列</text>
+
+            <path d="M212,122 L241,122" fill="none" stroke="#e0434b" stroke-width="2" marker-end="url(#arUp)"/>
+            <path d="M417,122 L446,122" fill="none" stroke="#e0434b" stroke-width="2" marker-end="url(#arUp)"/>
+            <path d="M622,122 L651,122" fill="none" stroke="#e0434b" stroke-width="2" marker-end="url(#arUp)"/>
+            <text x="227" y="112" text-anchor="middle" font-size="11" font-weight="700" fill="#e0434b">抄底 / 回补</text>
+            <text x="432" y="112" text-anchor="middle" font-size="11" font-weight="700" fill="#e0434b">站上 20 日线</text>
+            <text x="637" y="112" text-anchor="middle" font-size="11" font-weight="700" fill="#e0434b">多头排列</text>
+
+            <path d="M653,168 L624,168" fill="none" stroke="#14a37f" stroke-width="2" marker-end="url(#arDn)"/>
+            <path d="M448,168 L419,168" fill="none" stroke="#14a37f" stroke-width="2" marker-end="url(#arDn)"/>
+            <path d="M243,168 L214,168" fill="none" stroke="#14a37f" stroke-width="2" marker-end="url(#arDn)"/>
+            <text x="637" y="208" text-anchor="middle" font-size="11" font-weight="700" fill="#14a37f">跌破 10 日线</text>
+            <text x="432" y="208" text-anchor="middle" font-size="11" font-weight="700" fill="#14a37f">跌破 20 日线</text>
+            <text x="227" y="208" text-anchor="middle" font-size="11" font-weight="700" fill="#14a37f">跌破抄底价</text>
+
+            <line x1="40" y1="240" x2="66" y2="240" stroke="#e0434b" stroke-width="2"/>
+            <text x="74" y="244" font-size="12" fill="#64748b">加仓</text>
+            <line x1="132" y1="240" x2="158" y2="240" stroke="#14a37f" stroke-width="2"/>
+            <text x="166" y="244" font-size="12" fill="#64748b">减仓</text>
+            <line x1="232" y1="240" x2="258" y2="240" stroke="#94a3b8" stroke-width="2" stroke-dasharray="5 4"/>
+            <text x="266" y="244" font-size="12" fill="#64748b">无条件清仓</text>
+          </svg>
+        </figure>
+
+        <table class="kv">
+          <thead><tr><th>动作</th><th>什么时候发生</th><th>仓位变化</th></tr></thead>
+          <tbody>
+            <tr><td>加仓到 30%</td><td>均线已走坏、处于空仓状态后，5 日和 10 日线<b>同时开始拐头向上</b></td><td>0% → 30%</td></tr>
+            <tr><td>加仓到 50%</td><td>股价<b>有效站上 20 日线</b>（高出 20 点以上），风险解除</td><td>30% → 50%</td></tr>
+            <tr><td>加仓到 100%</td><td>股价 &gt; 5 日线 &gt; 10 日线 &gt; 20 日线，<b>完全多头排列</b></td><td>30% / 50% → 100%</td></tr>
+            <tr><td>减到 50%</td><td>重仓状态下<b>跌破 10 日线</b></td><td>100% → 50%</td></tr>
+            <tr><td>减到 30%</td><td><b>跌破 20 日线</b></td><td>100% / 50% → 30%</td></tr>
+            <tr><td>清仓到 0%</td><td>跌破当初抄底那天的<b>最低价</b>；或均线整体转空</td><td>任何档位 → 0%</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- ============ 策略二 ============ -->
+      <div class="logic-sec">
+        <h4><i style="background:#f5a623"></i>策略二 · 量价策略</h4>
+        <div class="qa">
+          <div><b>是什么</b><span>只看<b>成交量与价格配不配合</b>。用「当日成交量 ÷ 20 日均量」判断放量还是缩量，用「价格 ÷ MA60」判断处在高位还是低位，输出四个档位：0% / 30% / 50% / 100%。</span></div>
+          <div><b>为什么</b><span>价格可以被少量资金拉动，<b>成交量才是资金真进真出的证据</b>。放量上涨说明有承接；缩量上涨往往是虚涨；高位放量下跌、量价背离则通常是出货。</span></div>
+          <div><b>影响了什么</b><span>它决定<b>敢不敢满仓</b>：只有「趋势向上 <em>且</em> 放量」才给 100%；缩量上涨一律只给 50%；一旦出现风险形态（高位放量下跌、量价背离、地量地价等）直接清仓。</span></div>
+        </div>
+
+        <figure>
+          <figcaption>图 3 · 量价策略怎么给仓位：先看风险，再看「位置 × 量能」</figcaption>
+          <svg viewBox="0 0 900 340" role="img" aria-label="量价策略的档位规则：位置与量能组合对应的仓位，以及下跌与风险情形的处理">
+            <text x="450" y="30" text-anchor="middle" font-size="13" font-weight="800" fill="#334155">上涨时：位置 × 量能 → 档位</text>
+            <text x="435" y="60" text-anchor="middle" font-size="12.5" font-weight="700" fill="#64748b">缩量上涨</text>
+            <text x="715" y="60" text-anchor="middle" font-size="12.5" font-weight="700" fill="#64748b">放量上涨</text>
+
+            <text x="295" y="103" text-anchor="end" font-size="12.5" font-weight="800" fill="#1d4ed8">趋势向上</text>
+            <text x="295" y="121" text-anchor="end" font-size="11" fill="#94a3b8">收盘 &gt; MA20 且 MA20 &gt; MA60</text>
+            <rect x="310" y="76" width="250" height="58" rx="8" fill="#eff6ff" stroke="#93c5fd"/>
+            <text x="435" y="112" text-anchor="middle" font-size="20" font-weight="800" fill="#1d4ed8">50%</text>
+            <rect x="590" y="76" width="250" height="58" rx="8" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.8"/>
+            <text x="715" y="112" text-anchor="middle" font-size="20" font-weight="800" fill="#1d4ed8">100%</text>
+
+            <text x="295" y="167" text-anchor="end" font-size="12.5" font-weight="800" fill="#b45309">高位</text>
+            <text x="295" y="185" text-anchor="end" font-size="11" fill="#94a3b8">价格 &gt; MA60 × 1.10</text>
+            <rect x="310" y="140" width="250" height="58" rx="8" fill="#fffbeb" stroke="#fcd34d"/>
+            <text x="435" y="176" text-anchor="middle" font-size="20" font-weight="800" fill="#b45309">50%</text>
+            <rect x="590" y="140" width="250" height="58" rx="8" fill="#fffbeb" stroke="#fcd34d"/>
+            <text x="715" y="176" text-anchor="middle" font-size="20" font-weight="800" fill="#b45309">30%</text>
+
+            <text x="295" y="231" text-anchor="end" font-size="12.5" font-weight="800" fill="#64748b">其他上涨</text>
+            <text x="295" y="249" text-anchor="end" font-size="11" fill="#94a3b8">未满足以上两条</text>
+            <rect x="310" y="204" width="250" height="58" rx="8" fill="#f8fafc" stroke="#cbd5e1"/>
+            <text x="435" y="240" text-anchor="middle" font-size="20" font-weight="800" fill="#64748b">30%</text>
+            <rect x="590" y="204" width="250" height="58" rx="8" fill="#f8fafc" stroke="#cbd5e1"/>
+            <text x="715" y="240" text-anchor="middle" font-size="20" font-weight="800" fill="#64748b">50%</text>
+
+            <rect x="40" y="278" width="800" height="52" rx="10" fill="#fef2f2" stroke="#fecaca"/>
+            <text x="60" y="299" font-size="12.5" font-weight="800" fill="#b91c1c">下跌 / 滞涨 / 风险</text>
+            <text x="60" y="320" font-size="12.5" fill="#7f1d1d">高位滞涨 → 30%　｜　价跌但仍在 MA20 上方 → 30%　｜　跌破 MA20，或出现风险形态（高位放量下跌、量价背离确认、地量地价等）→ 0%</text>
+          </svg>
+          <div class="fnote">
+            <b>两种「放量」的处理正好相反</b>：同样是放量上涨，<b>趋势向上</b>时给 100%（资金在进场），<b>高位</b>时只给 30%（可能是出货）。这是这张表里最需要理解的一条。
+          </div>
+        </figure>
+      </div>
+
+      <!-- ============ 策略三 ============ -->
+      <div class="logic-sec">
+        <h4><i style="background:#8b5cf6"></i>策略三 · 融合策略</h4>
+        <div class="qa">
+          <div><b>是什么</b><span>把两条策略的仓位<b>各取一半相加</b>：<em>融合仓位 = 均线仓位 × 50% + 量价仓位 × 50%</em>；并且只要<b>任一条</b>给出 0%，融合仓位直接归 0%。</span></div>
+          <div><b>为什么</b><span>两条策略各有所长——均线判方向稳但慢，量价识别风险快但易被噪声带动。<b>各取一半</b>可以让二者互相校正，避免押注在单一信号上；「空仓一票否决」则保留了任一条发现风险时立刻退出的能力。</span></div>
+          <div><b>影响了什么</b><span>它通常比两条单独策略<b>参与得更克制</b>（平均仓位更低），但回撤更小。它对两条策略的信号都敏感：任何一条转空，第二天就会清仓。</span></div>
+        </div>
+
+        <figure>
+          <figcaption>图 4 · 融合策略（策略三）怎么算出来</figcaption>
+          <svg viewBox="0 0 900 336" role="img" aria-label="融合策略：均线仓位与量价仓位各取一半相加，任一条为空仓则最终清仓">
+            <defs>
+              <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+              </marker>
+            </defs>
+            <rect x="30" y="40" width="230" height="80" rx="10" fill="#eff6ff" stroke="#93c5fd"/>
+            <text x="145" y="70" text-anchor="middle" font-size="14" font-weight="800" fill="#1d4ed8">均线策略仓位</text>
+            <text x="145" y="98" text-anchor="middle" font-size="13" fill="#475569">0 / 30 / 50 / 100%</text>
+
+            <rect x="30" y="160" width="230" height="80" rx="10" fill="#fffbeb" stroke="#fcd34d"/>
+            <text x="145" y="190" text-anchor="middle" font-size="14" font-weight="800" fill="#b45309">量价策略仓位</text>
+            <text x="145" y="218" text-anchor="middle" font-size="13" fill="#475569">0 / 30 / 50 / 100%</text>
+
+            <rect x="320" y="96" width="240" height="100" rx="10" fill="#f5f3ff" stroke="#c4b5fd"/>
+            <text x="440" y="128" text-anchor="middle" font-size="14" font-weight="800" fill="#6d28d9">按权重相加</text>
+            <text x="440" y="158" text-anchor="middle" font-size="13" fill="#475569">均线 × 0.50</text>
+            <text x="440" y="180" text-anchor="middle" font-size="13" fill="#475569">+　量价 × 0.50</text>
+
+            <rect x="620" y="112" width="250" height="100" rx="10" fill="#fef2f2" stroke="#fecaca"/>
+            <text x="745" y="144" text-anchor="middle" font-size="14" font-weight="800" fill="#b91c1c">空仓一票否决</text>
+            <text x="745" y="172" text-anchor="middle" font-size="13" fill="#475569">任一条 = 0%</text>
+            <text x="745" y="194" text-anchor="middle" font-size="13" fill="#475569">→ 融合仓位强制 0%</text>
+
+            <path d="M260,80 C292,80 288,130 316,130" fill="none" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#ar3)"/>
+            <path d="M260,200 C292,200 288,162 316,162" fill="none" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#ar3)"/>
+            <path d="M560,146 L614,150" fill="none" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#ar3)"/>
+
+            <text x="450" y="256" text-anchor="middle" font-size="12.5" fill="#475569">两条策略的仓位各占一半；任一条喊空仓，结果就是 0%</text>
+            <text x="450" y="280" text-anchor="middle" font-size="12.5" font-weight="700" fill="#0f766e">↓　策略四 会在这个结果之上再叠加一层清仓条件（见下一节）</text>
+            <text x="450" y="306" text-anchor="middle" font-size="12" fill="#94a3b8">这就是页面上那条紫色曲线（已包含策略四的叠加效果）</text>
+          </svg>
+        </figure>
+      </div>
+
+      <!-- ============ 策略四 ============ -->
+      <div class="logic-sec">
+        <h4><i style="background:#0d9488"></i>策略四 · 均线粘合清仓（叠加在融合策略之上）</h4>
+        <div class="qa">
+          <div><b>是什么</b><span>它<b>不是一条独立策略</b>，而是叠加在策略三之上的<b>一道清仓条件</b>：盯住 5 日线与 10 日线的距离，当两条线明显挤到一起（差距缩到「前 7 个交易日最小差距」的 60% 以内、且点数相差不到 10 点）算<b>均线粘合</b>；此时若<b>同时缩量</b>、<b>且价格已跌破 20 日均线</b>，就在融合仓位之上把仓位<em>清零</em>。</span></div>
+          <div><b>为什么</b><span>5 日线与 10 日线贴近，意味着<b>最近一周和两周的买入成本几乎一样</b>：多空暂时平衡、方向还没定。这种僵局一旦选出方向往往走得比较快，而向下破位的杀伤更大；再叠加「缩量」这个条件，等于确认<b>僵局里也没有人愿意进场</b>。</span></div>
+          <div><b>影响了什么</b><span>它只在触发「粘合 + 缩量」的少数交易日上<b>把融合仓位改成 0%</b>，其余日子完全沿用融合策略的仓位。所以它不改变策略的仓位分配逻辑，只提供一次「先撤出来看看」的机会——代价是信号很少，实际影响有限。</span></div>
+        </div>
+
+        <figure>
+          <figcaption>图 5 · 怎么判定「均线粘合」，以及它在融合之上怎么清仓</figcaption>
+          <svg viewBox="0 0 900 372" role="img" aria-label="均线粘合的判定步骤：量差距、比一比、持续看，最后在融合仓位之上一票清仓">
+            <text x="450" y="26" text-anchor="middle" font-size="13" font-weight="800" fill="#334155">先判三步，再在融合仓位上做一次清仓</text>
+
+            <rect x="40" y="46" width="120" height="58" rx="9" fill="#e0f5f1" stroke="#5eead4"/>
+            <text x="100" y="81" text-anchor="middle" font-size="13" font-weight="800" fill="#0f766e">① 量差距</text>
+            <rect x="175" y="46" width="685" height="58" rx="9" fill="#f8fafc" stroke="#e5e7eb"/>
+            <text x="195" y="72" font-size="12.5" fill="#374151">差距百分比 = ｜5 日线 − 10 日线｜ ÷ 10 日线 × 100%　　；　　点数差距 = ｜5 日线 − 10 日线｜（点）</text>
+            <text x="195" y="93" font-size="11.5" fill="#94a3b8">同一件事的两种刻度：一个是「相对差多少」，一个是「绝对差几个点」</text>
+
+            <rect x="40" y="118" width="120" height="58" rx="9" fill="#e0f5f1" stroke="#5eead4"/>
+            <text x="100" y="153" text-anchor="middle" font-size="13" font-weight="800" fill="#0f766e">② 比一比</text>
+            <rect x="175" y="118" width="685" height="58" rx="9" fill="#f8fafc" stroke="#e5e7eb"/>
+            <text x="195" y="144" font-size="12.5" fill="#374151"><tspan font-weight="700" fill="#0f766e">X</tspan> = 前 7 个交易日「差距百分比」的<tspan font-weight="700" fill="#0f766e">最小值</tspan>　；　<tspan font-weight="700" fill="#0f766e">Y</tspan> = 当日的差距百分比</text>
+            <text x="195" y="165" font-size="12" fill="#b45309">若 Y &lt; 60% × X　且　点数差距 &lt; 10 点　→　均线粘合<tspan font-weight="800">开始</tspan>（并记下此时的 X 作为基准）</text>
+
+            <rect x="40" y="190" width="120" height="58" rx="9" fill="#e0f5f1" stroke="#5eead4"/>
+            <text x="100" y="225" text-anchor="middle" font-size="13" font-weight="800" fill="#0f766e">③ 持续看</text>
+            <rect x="175" y="190" width="685" height="58" rx="9" fill="#f8fafc" stroke="#e5e7eb"/>
+            <text x="195" y="216" font-size="12.5" fill="#374151">之后每个交易日：差距百分比仍 &lt; 60% × X　且　点数差距仍 &lt; 10 点　→　粘合<tspan font-weight="800">持续</tspan></text>
+            <text x="195" y="237" font-size="12" fill="#64748b">两天线一旦重新拉开（任一条不满足），粘合状态立即结束，需要重新判定</text>
+
+            <rect x="40" y="262" width="120" height="58" rx="9" fill="#fef2f2" stroke="#fecaca"/>
+            <text x="100" y="297" text-anchor="middle" font-size="13" font-weight="800" fill="#b91c1c">④ 动作</text>
+            <rect x="175" y="262" width="685" height="58" rx="9" fill="#fef2f2" stroke="#fecaca"/>
+            <text x="195" y="288" font-size="12.5" fill="#7f1d1d">粘合　且　缩量（成交量 &lt; 20 日均量 × 0.8）　→　在融合仓位之上　<tspan font-weight="800" fill="#b91c1c">强制清仓（0%）</tspan></text>
+            <text x="195" y="309" font-size="11.5" fill="#94a3b8">只粘合不缩量时不动——僵局里没人夺路而逃，就不必先跑</text>
+
+            <text x="40" y="352" font-size="12" fill="#64748b">参数：回看 7 个交易日　·　差距阈值 前值的 60%　·　点数上限 10 点　·　缩量线 20 日均量的 0.8 倍</text>
+          </svg>
+          <div class="fnote">
+            <b>两个条件缺一不可</b>：「粘合」说明多空僵住，「缩量」说明没人急着离场。只有僵住、而且大家都缩手不动的时候，才在融合仓位之上先退出来等方向。
+            <br><b>它在流程里的位置</b>：融合策略先算出仓位 → 策略四再检查是否「粘合 + 缩量」 → 是则把这一天的仓位改成 0%，否则不动。
+          </div>
+        </figure>
+      </div>
+
+      <!-- ============ 技术口径 ============ -->
+      <div class="logic-sec tech">
+        <h4><i style="background:#94a3b8"></i>技术口径与已知限制</h4>
+        <details>
+          <summary>展开查看实现细节</summary>
+          <ul>
+            <li><b>数据来源：</b>腾讯行情接口（浏览器直连，支持跨域）；不可达时按「东财 → 新浪 → 中证指数官网」顺序回退。指数用<b>不复权</b>价，股票用<b>后复权</b>价。</li>
+            <li><b>中证2000 为什么走单独的源：</b>代码 <code>932000</code> 是<b>中证指数公司自编代码</b>（93 开头），不在沪深交易所挂牌，
+              所以<b>腾讯、新浪都没有</b>这条指数；东财虽有但接口常被 WAF 拦。本页因此把它接到<b>中证指数官网</b>
+              （csindex.com.cn，含 2013-12-31 基日以来的完整日线与成交量，共 3,090 个交易日，历史比其他指数都长）。
+              官网接口不允许跨域，所以发布版由一个小代理转发（<code>/api/csindex</code>）。
+              量价策略对成交量全部用<b>相对值</b>（成交量 / 均量的倍数），因此官网与腾讯的成交量单位不同<b>不影响</b>信号。</li>
+            <li><b>为什么股票改用后复权（不是前复权）：</b>腾讯的前复权是<b>加性复权</b>（历史价 = 原价 − 累计分红）。
+              <b>窗口一长就会失真</b>：实测贵州茅台 2016-09-19 ~ 2026-09-14 这段，前复权序列从 <b>8.55</b> 开始（更早的位置甚至为负），
+              用它算出的「买入持有」是 <b>+14853.9%</b>，而正确口径（后复权）是 <b>+385.9%</b>，不复权是 +325.8% —— 前复权把结果放大了约 <b>38 倍</b>。
+              后复权以最早价为基准、含分红再投资，价格恒为正，是回测收益的标准口径。
+              取数时若目标口径不可用会自动降级，并在结果上方给出提示。</li>
+            <li><b>档位取值：</b>均线策略与量价策略都是 <b>0 / 30 / 50 / 100%</b> 四档；融合策略是两者的加权平均，因此会出现 15%、25%、40%、65%、75% 等中间值；<b>策略四不是独立仓位策略</b>，只输出「清仓 / 不清仓」两种状态，作用于融合结果之上。</li>
+            <li><b>「高位」「放量」「缩量」的量化定义：</b>高位 = 收盘价 &gt; 60 日均线 × 1.10；放量 = 当日成交量 &gt; 20 日均量 × 1.3；缩量 = 当日成交量 &lt; 20 日均量 × 0.8；滞涨 = 当日涨跌幅绝对值 &lt; 0.5% 或上影线 &gt; 0.3%。规则全部未命中时，按当日价格方向给粗略仓位（涨 &gt; 0.3% → 50%；跌 &lt; −0.3% → 30%；其余沿用前一日）。</li>
+            <li><b>数据预热：</b>协议需要至少 60 个交易日的历史数据（60 日均线、60 日均成交额、60 日高低点）。工具会自动向前多取约 620 个自然日的数据用于预热。</li>
+            <li><b>执行口径：</b>信号按当日收盘计算、<b>次日生效</b>，避免未来函数；净值按「持仓比例 × 标的日收益」复利计算，<b>不含手续费、印花税与滑点</b>——真实交易成本会进一步拉低所有择时策略的收益。</li>
+            <li><b>均线粘合的判定参数：</b>回看 <b>7</b> 个交易日；当日差距百分比须小于「回看期内最小值」的 <b>60%</b>；点数差距须小于 <b>10 点</b>；缩量线为 20 日均量的 <b>0.8</b> 倍（<code>FIXED.sqVRTHIN</code> 可改）。</li>
+            <li><b>放宽口径实测（2026-09-15，三指数 2500 根，新浪数据）：</b>把触发面做大是否能改善效果？结论是<b>不能稳定改善</b>。
+              <table class="kv" style="margin-top:6px">
+                <thead><tr><th>放宽方式</th><th>触发天</th><th>策动天</th><th>样本内 Calmar</th><th>样本外 Calmar</th><th>判定</th></tr></thead>
+                <tbody>
+                  <tr><td>当前：缩量线 0.8</td><td>38</td><td>10</td><td>1.10</td><td>0.51</td><td>基线</td></tr>
+                  <tr><td>去掉缩量条件</td><td>347</td><td>273</td><td><b>0.83</b></td><td>0.53</td><td>明显变差</td></tr>
+                  <tr><td>点数上限 10 → 20</td><td>44</td><td>16</td><td>1.10</td><td>0.54</td><td>基本无差</td></tr>
+                  <tr><td>去掉点数条件</td><td>56</td><td>28</td><td>1.09</td><td>0.54</td><td>基本无差</td></tr>
+                  <tr><td>比值 60% → 100%</td><td>47</td><td>16</td><td>1.11</td><td>0.47</td><td>基本无差</td></tr>
+                  <tr><td><b>缩量线 → 1.0</b></td><td>233</td><td>127</td><td><b>1.23</b></td><td><b>0.58</b></td><td>全期略好，但见下</td></tr>
+                  <tr><td>缩量线 → 1.2</td><td>324</td><td>236</td><td>0.92</td><td><b>1.08</b></td><td>半年份赢半年份输</td></tr>
+                </tbody>
+              </table>
+              <b>为什么「缩量线 1.0」也不算通过：</b>
+              <ul style="margin:4px 0 0 16px">
+                <li>它的样本内增益（1.12 → 1.23）几乎全部来自 <b>2024 一年</b>（该年 +0.79，其余年份多在 ±0.06 内）。</li>
+                <li>滚动 12 个月窗口：中位 Calmar 反而从 <b>0.25 降到 0.21</b>，含策略四更好的窗口只占 <b>50%</b>（等同随机）。</li>
+                <li>置换检验（打乱清仓日 300 次）：真实值落在第 <b>78%</b> 分位，未达 90% 的可信线。</li>
+                <li>分指数不一致：上证样本内 +0.22 但样本外 −0.21；中证500 样本内 −0.14。</li>
+              </ul>
+              <b>结论：</b>策略四的触发面做大之后，绩效改善不可靠。<b>保持缩量线 0.8（触发极少的保险阀）</b>，
+              或最多放宽到 1.0 并接受「一年驱动 + 滚动窗口不支持」这个代价。它<b>始终不应被当作独立策略</b>预期收益。</li>
+            <li><b>「位置过滤」（须跌破 MA20）实测（2026-09-15，三指数 5271 根，2005-01 ~ 2026-09，约 21.7 年）：</b>
+              加这一层过滤对<b>信号质量</b>有明显改善，但<b>并不能「躲过大跌」</b>——因为在真正的大跌里，它一次都没能策动仓位。
+              <table class="kv" style="margin-top:6px">
+                <thead><tr><th>口径</th><th>信号笔数</th><th>信号后 10 日<br>（随机 2000 次分位）</th><th>每笔净效果</th><th>顶部前 10 日<br>预警率</th><th>融合 Calmar<br>（全历史 / 近年）</th></tr></thead>
+                <tbody>
+                  <tr><td>粘合 ∧ 缩量（基线）</td><td>276</td><td>+0.35%（第 <b>31%</b> 分位，不显著）</td><td>+0.031pp</td><td><b>46%</b></td><td>8.66 / 1.10</td></tr>
+                  <tr><td><b>+ 跌破 MA20（当前采用）</b></td><td>190</td><td><b>−0.41%（第 1% 分位，显著）</b></td><td><b>+0.184pp</b></td><td><b>0%</b></td><td>8.94 / 1.12</td></tr>
+                  <tr><td>+ 跌破 MA10</td><td>191</td><td>+0.22%（第 23% 分位）</td><td>—</td><td>46%</td><td>8.75 / 1.10</td></tr>
+                  <tr><td>+ 跌破 MA30</td><td>166</td><td>−0.14%（第 7% 分位）</td><td>—</td><td>0%</td><td>8.97 / 1.12</td></tr>
+                  <tr><td>【对照】不含策略四</td><td>—</td><td>—</td><td>—</td><td>—</td><td>8.94 / 1.12</td></tr>
+                </tbody>
+              </table>
+              <b>为什么「躲不掉大跌」——逐区间实测「实际策动天数」</b>（信号出现了，但仓位能改动的天数）：
+              <table class="kv" style="margin-top:6px">
+                <thead><tr><th>区间</th><th>上证</th><th>沪深300</th><th>中证500</th></tr></thead>
+                <tbody>
+                  <tr><td>2008 熊市</td><td>0</td><td>0</td><td>0</td></tr>
+                  <tr><td>2015-06 ~ 2016</td><td>0</td><td>0</td><td>0</td></tr>
+                  <tr><td>2018 熊市</td><td>0</td><td>0</td><td>0</td></tr>
+                  <tr><td>2022 熊市</td><td>0</td><td>0</td><td>0</td></tr>
+                  <tr><td>2005 ~ 2007 牛市</td><td>1</td><td>2</td><td>5</td></tr>
+                </tbody>
+              </table>
+              信号在熊市里确实出现过（2008 年上证 7 次、2015-16 上证 16 次），但那些日子融合仓位<b>早已被均线或量价的空仓信号压到 0%</b>，
+              所以它一次都没能改变实际持仓 —— <b>它想躲的跌，别的信号已经躲了。</b>它唯一真正策动仓位的地方是<b>牛市</b>，而且是<b>负作用</b>（误杀），
+              基线的全历史 Calmar 因此从 8.94 掉到 8.66，而加上 MA20 过滤后完全恢复 8.94。
+              <br><b>附带把「高位」的两种含义说清：</b>本轮测的「高位」是<b>价格已跌破 20 日均线</b>（即从高位回落）；
+              而另一种常说的「高位」（收盘 &gt; MA60 × 1.10）与「粘合 ∧ 缩量」在 21.7 年里<b>只有 12 天同时成立</b>、
+              且那 12 天是<b>反效</b>的（之后 20 日平均 +5.0%）——A 股「高位缩量粘合」更常是上涨中继，不是见顶。</li>
+            <li><b>案例复盘 · 2024 年初急跌（2024-01-05 ~ 2024-02-05 主跌，随后 V 型反弹）</b>
+              <br>这段是「否决有效、但回补太慢」的典型样本，也是策略四「0 策动」的原因所在。
+              <table class="kv" style="margin-top:6px">
+                <thead><tr><th>指数</th><th>主跌段：指数跌幅</th><th>融合策略收益</th><th>躲过</th><th>V 反弹段：指数涨幅</th><th>融合策略收益</th><th>错过</th></tr></thead>
+                <tbody>
+                  <tr><td>上证</td><td>−7.75%</td><td>−0.79%</td><td><b>+6.96pp</b></td><td>+8.09%</td><td>+1.08%</td><td>−7.01pp</td></tr>
+                  <tr><td>沪深300</td><td>−3.87%</td><td>−1.61%</td><td>+2.26pp</td><td>+6.17%</td><td>+0.88%</td><td>−5.30pp</td></tr>
+                  <tr><td>中证500</td><td><b>−15.56%</b></td><td><b>0.00%</b></td><td><b>+15.56pp</b></td><td>+11.25%</td><td>+2.37%</td><td>−8.88pp</td></tr>
+                </tbody>
+              </table>
+              <b>主跌段躲得很干净：</b>中证500 自 2024-01-04 起仓位就是 0%，整段一分钱没亏；上证也是 01-05 起清空。
+              <b>策略四在这段 0 策动</b>，不是因为它没起作用，而是<b>在它能响之前仓位已经被清空了</b>。
+              <br><b>代价在反弹段：</b>底部（2024-02-05）之后，融合仓位首次回到 50% 分别在
+              <b>02-22 / 02-21 / 02-20</b>（当时指数已涨 <b>10.6% / 8.0% / 15.3%</b>）；首次回到 100% 更晚
+              （04-30 / 05-06 / 2025-02）。
+              <br><b>压制来源逐日可查：</b>2024-02-06 上证 +3.23%、中证500 <b>+7.75%</b> 那两天，
+              量价策略给出 50%，但均线策略仍是 0%，「任一条空仓即清仓」把仓位清成 0% —— 大反弹第一天完全没吃到。
+              <br><b>但解除这条否决并不是解药</b>（反事实实测，反弹段按量价仓位执行）：上证 +0.96pp、沪深300 持平、
+              中证500 <b>−1.06pp</b>——量价自己在 02-19 后又给出 0%，没有任何单一口径能跟住 V 型反弹。
+              <br><b>2024 全年净效果仍是好的：</b>上证 +10.28%/回撤 −2.70%、沪深300 +11.16%/−2.98%、
+              中证500 <b>+7.75%/−5.29%</b>，对应买入持有 +13.15%/−14.73%、+16.20%/−14.41%、+5.85%/−19.90%。</li>
+            <li><b>固定参数：</b><code>R₀ = 1.0</code>／量价 4 档／融合权重 均线 0.50 + 量价 0.50／否决规则「任一空仓即清仓」／<code>squeezeVeto = true</code>（是否叠加策略四，改为 <code>false</code> 即关闭）／<code>sqFilterMA = 20</code>（须跌破 MA20 才清仓，改 0 关闭）／<code>sqVRTHIN = 0.8</code>（缩量线）。如需更换，改脚本顶部的 <code>FIXED</code> 对象即可。</li>
+            <li><b>已知限制（重要）：</b>这两条策略都只用了价格与成交量，属于纯技术择时。用 2018-09 ~ 2026-09 的三个宽基指数检验，融合策略虽然回撤明显小于买入持有（98% 的滚动窗口成立），但<b>滚动 12 个月窗口里有约 4 成是负收益</b>，且把仓位序列随机打乱后的对比显示它<b>尚未表现出统计上可靠的择时技能</b>。请把它当作「控制回撤的仓位管理工具」，而不是收益引擎。</li>
+            <li><b>提示：</b>本工具为策略回测演示，不构成投资建议。均线相关的阈值以指数点位表示，若锚定指数水平差异较大需相应调整。</li>
+          </ul>
+        </details>
+      </div>
+    </div>
+  
+  
+  </section>
+
+  <!-- ===== 附：策略在主要宽基指数上的长期表现（静态预计算，不依赖回测） ===== -->
+  <section class="card" id="idxModule">
+    <h3>附 · 策略在主要宽基指数上的长期表现</h3>
+    <div class="sub">共同区间 <b>2015-01-27 ~ 2026-09-14</b>（约 11.6 年 · 2,838 个交易日）· 择时信号与回测标的<b>均为该指数自身</b> · 不含手续费与滑点</div>
+    <div class="hint">本表<b>刻意不随上方回测区间变化</b>：它取的是四个指数都能取到的最长共同区间（中证1000 与国证2000 只有 2014 年后的数据），用作长历史校验，比默认的「最近 1 年」长得多。</div>
+
+    <p class="lead-q">一句话：<b>指数越小、波动越大，这套择时越占优</b>；在大盘蓝筹上它跑输长期持有。</p>
+
+    <div style="overflow-x:auto">
+      <table class="cmp" id="tblIdx">
+        <thead><tr><th>指数</th><th class="c-name">策略</th><th>区间收益</th><th>年化</th><th>最大回撤</th><th>Calmar</th><th>Δ收益 vs 长期持有</th><th>换手(次/年)</th></tr></thead>
+        <tbody>
+        <tr class=""><td class="idxname" rowspan="4">沪深300</td><td class="c-name">均线策略</td><td class="neg">-7.5%</td><td>-0.7%</td><td class="neg">-34.5%</td><td>-0.22</td><td><span class="neg">-32.8 pp</span></td><td>60</td></tr>
+        <tr class=""><td class="c-name">量价策略</td><td class="pos">9.8%</td><td>0.8%</td><td class="neg">-17.5%</td><td>0.56</td><td><span class="neg">-15.5 pp</span></td><td>96</td></tr>
+        <tr class=""><td class="c-name">融合策略</td><td class="pos">16.3%</td><td>1.4%</td><td class="neg">-22.7%</td><td>0.72</td><td><span class="neg">-9.0 pp</span></td><td>82</td></tr>
+        <tr class="bhrow"><td class="c-name">长期持有</td><td class="pos">25.3%</td><td>2.0%</td><td class="neg">-46.7%</td><td>0.54</td><td>—</td><td>—</td></tr>
+        <tr class=""><td class="idxname" rowspan="4">中证500</td><td class="c-name">均线策略</td><td class="pos">50.8%</td><td>3.7%</td><td class="neg">-41.2%</td><td>1.23</td><td><span class="pos">+19.7 pp</span></td><td>59</td></tr>
+        <tr class=""><td class="c-name">量价策略</td><td class="pos">7.9%</td><td>0.7%</td><td class="neg">-29.6%</td><td>0.27</td><td><span class="neg">-23.2 pp</span></td><td>96</td></tr>
+        <tr class=""><td class="c-name">融合策略</td><td class="pos">23.5%</td><td>1.9%</td><td class="neg">-34.9%</td><td>0.67</td><td><span class="neg">-7.7 pp</span></td><td>82</td></tr>
+        <tr class="bhrow"><td class="c-name">长期持有</td><td class="pos">31.1%</td><td>2.4%</td><td class="neg">-65.2%</td><td>0.48</td><td>—</td><td>—</td></tr>
+        <tr class=""><td class="idxname" rowspan="4">中证1000</td><td class="c-name">均线策略</td><td class="pos">84.0%</td><td>5.6%</td><td class="neg">-33.2%</td><td>2.53</td><td><span class="pos">+72.4 pp</span></td><td>58</td></tr>
+        <tr class=""><td class="c-name">量价策略</td><td class="pos">20.9%</td><td>1.7%</td><td class="neg">-20.4%</td><td>1.02</td><td><span class="pos">+9.3 pp</span></td><td>91</td></tr>
+        <tr class=""><td class="c-name">融合策略</td><td class="pos">38.6%</td><td>3.0%</td><td class="neg">-25.3%</td><td>1.52</td><td><span class="pos">+27.0 pp</span></td><td>79</td></tr>
+        <tr class="bhrow"><td class="c-name">长期持有</td><td class="pos">11.6%</td><td>1.0%</td><td class="neg">-72.3%</td><td>0.16</td><td>—</td><td>—</td></tr>
+        <tr class=""><td class="idxname" rowspan="4">国证2000</td><td class="c-name">均线策略</td><td class="pos">136.6%</td><td>8.0%</td><td class="neg">-32.2%</td><td>4.24</td><td><span class="pos">+73.9 pp</span></td><td>58</td></tr>
+        <tr class=""><td class="c-name">量价策略</td><td class="pos">57.2%</td><td>4.1%</td><td class="neg">-14.2%</td><td>4.03</td><td><span class="neg">-5.6 pp</span></td><td>92</td></tr>
+        <tr class=""><td class="c-name">融合策略</td><td class="pos">94.1%</td><td>6.1%</td><td class="neg">-18.0%</td><td>5.24</td><td><span class="pos">+31.4 pp</span></td><td>82</td></tr>
+        <tr class="bhrow"><td class="c-name">长期持有</td><td class="pos">62.7%</td><td>4.4%</td><td class="neg">-66.8%</td><td>0.94</td><td>—</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="idxcards">
+      <div class="idxcard">
+        <b>沪深300</b>
+        <div class="big neg">-9.0 pp</div>
+        <div class="small">融合策略 vs 长期持有　区间收益 16.3% ／ 25.3%</div>
+        <div class="row2"><span class="neg">回撤改善 -24.0 pp</span><span>Calmar 0.72 ／ 0.54</span></div>
+      </div>
+      <div class="idxcard">
+        <b>中证500</b>
+        <div class="big neg">-7.7 pp</div>
+        <div class="small">融合策略 vs 长期持有　区间收益 23.5% ／ 31.1%</div>
+        <div class="row2"><span class="neg">回撤改善 -30.3 pp</span><span>Calmar 0.67 ／ 0.48</span></div>
+      </div>
+      <div class="idxcard">
+        <b>中证1000</b>
+        <div class="big pos">+27.0 pp</div>
+        <div class="small">融合策略 vs 长期持有　区间收益 38.6% ／ 11.6%</div>
+        <div class="row2"><span class="neg">回撤改善 -47.0 pp</span><span>Calmar 1.52 ／ 0.16</span></div>
+      </div>
+      <div class="idxcard">
+        <b>国证2000</b>
+        <div class="big pos">+31.4 pp</div>
+        <div class="small">融合策略 vs 长期持有　区间收益 94.1% ／ 62.7%</div>
+        <div class="row2"><span class="neg">回撤改善 -48.8 pp</span><span>Calmar 5.24 ／ 0.94</span></div>
+      </div>
+    </div>
+
+    <figure>
+      <figcaption>图 A · 区间收益：三条策略 vs「长期持有」（单位 %）</figcaption>
+      <svg viewBox="0 0 900 340" role="img" aria-label="四个宽基指数上，均线策略、量价策略、融合策略与长期持有的区间收益对比柱状图">
+          <line x1="96" y1="278.0" x2="882.0" y2="278.0" stroke="#eef2f7" stroke-width="1"/>
+          <text x="88" y="282.0" text-anchor="end" font-size="11" fill="#94a3b8">-20%</text>
+          <line x1="96" y1="228.4" x2="882.0" y2="228.4" stroke="#eef2f7" stroke-width="1"/>
+          <text x="88" y="232.4" text-anchor="end" font-size="11" fill="#94a3b8">16%</text>
+          <line x1="96" y1="178.8" x2="882.0" y2="178.8" stroke="#eef2f7" stroke-width="1"/>
+          <text x="88" y="182.8" text-anchor="end" font-size="11" fill="#94a3b8">52%</text>
+          <line x1="96" y1="129.2" x2="882.0" y2="129.2" stroke="#eef2f7" stroke-width="1"/>
+          <text x="88" y="133.2" text-anchor="end" font-size="11" fill="#94a3b8">88%</text>
+          <line x1="96" y1="79.6" x2="882.0" y2="79.6" stroke="#eef2f7" stroke-width="1"/>
+          <text x="88" y="83.6" text-anchor="end" font-size="11" fill="#94a3b8">124%</text>
+          <line x1="96" y1="30.0" x2="882.0" y2="30.0" stroke="#eef2f7" stroke-width="1"/>
+          <text x="88" y="34.0" text-anchor="end" font-size="11" fill="#94a3b8">160%</text>
+          <line x1="96" y1="250.4" x2="882.0" y2="250.4" stroke="#cbd5e1" stroke-width="1.2"/>
+          <rect x="116.8" y="250.4" width="32" height="10.3" rx="3" fill="#2563eb" opacity="0.92"/>
+          <text x="132.8" y="272.7" text-anchor="middle" font-size="10" font-weight="700" fill="#2563eb">-7</text>
+          <rect x="157.8" y="236.9" width="32" height="13.5" rx="3" fill="#f5a623" opacity="0.92"/>
+          <text x="173.8" y="231.9" text-anchor="middle" font-size="10" font-weight="700" fill="#f5a623">10</text>
+          <rect x="198.8" y="227.9" width="32" height="22.5" rx="3" fill="#8b5cf6" opacity="0.92"/>
+          <text x="214.8" y="222.9" text-anchor="middle" font-size="10" font-weight="700" fill="#8b5cf6">16</text>
+          <rect x="239.8" y="215.6" width="32" height="34.9" rx="3" fill="#9ca3af" opacity="0.55"/>
+          <text x="255.8" y="210.6" text-anchor="middle" font-size="10" font-weight="700" fill="#64748b">25</text>
+          <text x="194.2" y="304" text-anchor="middle" font-size="12.5" font-weight="700" fill="#334155">沪深300</text>
+          <rect x="313.2" y="180.4" width="32" height="70.0" rx="3" fill="#2563eb" opacity="0.92"/>
+          <text x="329.2" y="175.4" text-anchor="middle" font-size="10" font-weight="700" fill="#2563eb">51</text>
+          <rect x="354.2" y="239.5" width="32" height="10.9" rx="3" fill="#f5a623" opacity="0.92"/>
+          <text x="370.2" y="234.5" text-anchor="middle" font-size="10" font-weight="700" fill="#f5a623">8</text>
+          <rect x="395.2" y="218.1" width="32" height="32.3" rx="3" fill="#8b5cf6" opacity="0.92"/>
+          <text x="411.2" y="213.1" text-anchor="middle" font-size="10" font-weight="700" fill="#8b5cf6">23</text>
+          <rect x="436.2" y="207.6" width="32" height="42.9" rx="3" fill="#9ca3af" opacity="0.55"/>
+          <text x="452.2" y="202.6" text-anchor="middle" font-size="10" font-weight="700" fill="#64748b">31</text>
+          <text x="390.8" y="304" text-anchor="middle" font-size="12.5" font-weight="700" fill="#334155">中证500</text>
+          <rect x="509.8" y="134.8" width="32" height="115.7" rx="3" fill="#2563eb" opacity="0.92"/>
+          <text x="525.8" y="129.8" text-anchor="middle" font-size="10" font-weight="700" fill="#2563eb">84</text>
+          <rect x="550.8" y="221.7" width="32" height="28.8" rx="3" fill="#f5a623" opacity="0.92"/>
+          <text x="566.8" y="216.7" text-anchor="middle" font-size="10" font-weight="700" fill="#f5a623">21</text>
+          <rect x="591.8" y="197.3" width="32" height="53.2" rx="3" fill="#8b5cf6" opacity="0.92"/>
+          <text x="607.8" y="192.3" text-anchor="middle" font-size="10" font-weight="700" fill="#8b5cf6">39</text>
+          <rect x="632.8" y="234.5" width="32" height="15.9" rx="3" fill="#9ca3af" opacity="0.55"/>
+          <text x="648.8" y="229.5" text-anchor="middle" font-size="10" font-weight="700" fill="#64748b">12</text>
+          <text x="587.2" y="304" text-anchor="middle" font-size="12.5" font-weight="700" fill="#334155">中证1000</text>
+          <rect x="706.2" y="62.2" width="32" height="188.3" rx="3" fill="#2563eb" opacity="0.92"/>
+          <text x="722.2" y="57.2" text-anchor="middle" font-size="10" font-weight="700" fill="#2563eb">137</text>
+          <rect x="747.2" y="171.7" width="32" height="78.8" rx="3" fill="#f5a623" opacity="0.92"/>
+          <text x="763.2" y="166.7" text-anchor="middle" font-size="10" font-weight="700" fill="#f5a623">57</text>
+          <rect x="788.2" y="120.8" width="32" height="129.7" rx="3" fill="#8b5cf6" opacity="0.92"/>
+          <text x="804.2" y="115.8" text-anchor="middle" font-size="10" font-weight="700" fill="#8b5cf6">94</text>
+          <rect x="829.2" y="164.0" width="32" height="86.4" rx="3" fill="#9ca3af" opacity="0.55"/>
+          <text x="845.2" y="159.0" text-anchor="middle" font-size="10" font-weight="700" fill="#64748b">63</text>
+          <text x="783.8" y="304" text-anchor="middle" font-size="12.5" font-weight="700" fill="#334155">国证2000</text>
+      </svg>
+      <div class="fnote lgrow">
+        <span class="lg"><i style="background:#2563eb"></i>均线策略</span>
+        <span class="lg"><i style="background:#f5a623"></i>量价策略</span>
+        <span class="lg"><i style="background:#8b5cf6"></i>融合策略</span>
+        <span class="lg"><i style="background:#9ca3af"></i>长期持有</span>
+      </div>
+    </figure>
+
+    <figure>
+      <figcaption>图 B · 最大回撤：三条策略 vs「长期持有」（柱越短越好，单位 %）</figcaption>
+      <svg viewBox="0 0 900 340" role="img" aria-label="四个宽基指数上，均线策略、量价策略、融合策略与长期持有的最大回撤对比柱状图">
+          <line x1="96" y1="278.0" x2="882.0" y2="278.0" stroke="#eef2f7" stroke-width="1"/>
+          <text x="88" y="282.0" text-anchor="end" font-size="11" fill="#94a3b8">-80%</text>
+          <line x1="96" y1="228.4" x2="882.0" y2="228.4" stroke="#eef2f7" stroke-width="1"/>
+          <text x="88" y="232.4" text-anchor="end" font-size="11" fill="#94a3b8">-64%</text>
+          <line x1="96" y1="178.8" x2="882.0" y2="178.8" stroke="#eef2f7" stroke-width="1"/>
+          <text x="88" y="182.8" text-anchor="end" font-size="11" fill="#94a3b8">-48%</text>
+          <line x1="96" y1="129.2" x2="882.0" y2="129.2" stroke="#eef2f7" stroke-width="1"/>
+          <text x="88" y="133.2" text-anchor="end" font-size="11" fill="#94a3b8">-32%</text>
+          <line x1="96" y1="79.6" x2="882.0" y2="79.6" stroke="#eef2f7" stroke-width="1"/>
+          <text x="88" y="83.6" text-anchor="end" font-size="11" fill="#94a3b8">-16%</text>
+          <line x1="96" y1="30.0" x2="882.0" y2="30.0" stroke="#eef2f7" stroke-width="1"/>
+          <text x="88" y="34.0" text-anchor="end" font-size="11" fill="#94a3b8">0%</text>
+          <line x1="96" y1="30.0" x2="882.0" y2="30.0" stroke="#cbd5e1" stroke-width="1.2"/>
+          <rect x="116.8" y="30.0" width="32" height="107.0" rx="3" fill="#2563eb" opacity="0.92"/>
+          <text x="132.8" y="149.0" text-anchor="middle" font-size="10" font-weight="700" fill="#2563eb">-35</text>
+          <rect x="157.8" y="30.0" width="32" height="54.2" rx="3" fill="#f5a623" opacity="0.92"/>
+          <text x="173.8" y="96.2" text-anchor="middle" font-size="10" font-weight="700" fill="#f5a623">-17</text>
+          <rect x="198.8" y="30.0" width="32" height="70.4" rx="3" fill="#8b5cf6" opacity="0.92"/>
+          <text x="214.8" y="112.4" text-anchor="middle" font-size="10" font-weight="700" fill="#8b5cf6">-23</text>
+          <rect x="239.8" y="30.0" width="32" height="144.8" rx="3" fill="#9ca3af" opacity="0.55"/>
+          <text x="255.8" y="186.8" text-anchor="middle" font-size="10" font-weight="700" fill="#64748b">-47</text>
+          <text x="194.2" y="304" text-anchor="middle" font-size="12.5" font-weight="700" fill="#334155">沪深300</text>
+          <rect x="313.2" y="30.0" width="32" height="127.7" rx="3" fill="#2563eb" opacity="0.92"/>
+          <text x="329.2" y="169.7" text-anchor="middle" font-size="10" font-weight="700" fill="#2563eb">-41</text>
+          <rect x="354.2" y="30.0" width="32" height="91.8" rx="3" fill="#f5a623" opacity="0.92"/>
+          <text x="370.2" y="133.8" text-anchor="middle" font-size="10" font-weight="700" fill="#f5a623">-30</text>
+          <rect x="395.2" y="30.0" width="32" height="108.1" rx="3" fill="#8b5cf6" opacity="0.92"/>
+          <text x="411.2" y="150.1" text-anchor="middle" font-size="10" font-weight="700" fill="#8b5cf6">-35</text>
+          <rect x="436.2" y="30.0" width="32" height="202.1" rx="3" fill="#9ca3af" opacity="0.55"/>
+          <text x="452.2" y="244.1" text-anchor="middle" font-size="10" font-weight="700" fill="#64748b">-65</text>
+          <text x="390.8" y="304" text-anchor="middle" font-size="12.5" font-weight="700" fill="#334155">中证500</text>
+          <rect x="509.8" y="30.0" width="32" height="102.8" rx="3" fill="#2563eb" opacity="0.92"/>
+          <text x="525.8" y="144.8" text-anchor="middle" font-size="10" font-weight="700" fill="#2563eb">-33</text>
+          <rect x="550.8" y="30.0" width="32" height="63.3" rx="3" fill="#f5a623" opacity="0.92"/>
+          <text x="566.8" y="105.3" text-anchor="middle" font-size="10" font-weight="700" fill="#f5a623">-20</text>
+          <rect x="591.8" y="30.0" width="32" height="78.6" rx="3" fill="#8b5cf6" opacity="0.92"/>
+          <text x="607.8" y="120.6" text-anchor="middle" font-size="10" font-weight="700" fill="#8b5cf6">-25</text>
+          <rect x="632.8" y="30.0" width="32" height="224.3" rx="3" fill="#9ca3af" opacity="0.55"/>
+          <text x="648.8" y="266.3" text-anchor="middle" font-size="10" font-weight="700" fill="#64748b">-72</text>
+          <text x="587.2" y="304" text-anchor="middle" font-size="12.5" font-weight="700" fill="#334155">中证1000</text>
+          <rect x="706.2" y="30.0" width="32" height="100.0" rx="3" fill="#2563eb" opacity="0.92"/>
+          <text x="722.2" y="142.0" text-anchor="middle" font-size="10" font-weight="700" fill="#2563eb">-32</text>
+          <rect x="747.2" y="30.0" width="32" height="44.0" rx="3" fill="#f5a623" opacity="0.92"/>
+          <text x="763.2" y="86.0" text-anchor="middle" font-size="10" font-weight="700" fill="#f5a623">-14</text>
+          <rect x="788.2" y="30.0" width="32" height="55.7" rx="3" fill="#8b5cf6" opacity="0.92"/>
+          <text x="804.2" y="97.7" text-anchor="middle" font-size="10" font-weight="700" fill="#8b5cf6">-18</text>
+          <rect x="829.2" y="30.0" width="32" height="206.9" rx="3" fill="#9ca3af" opacity="0.55"/>
+          <text x="845.2" y="248.9" text-anchor="middle" font-size="10" font-weight="700" fill="#64748b">-67</text>
+          <text x="783.8" y="304" text-anchor="middle" font-size="12.5" font-weight="700" fill="#334155">国证2000</text>
+      </svg>
+      <div class="fnote">长期持有的回撤在 47%~72% 之间，三条策略普遍压到 14%~35% —— <b>回撤控制是这套体系最稳定的一项能力</b>。</div>
+    </figure>
+
+    <div class="warnbox">
+      <b>两件必须自己扣掉的事。</b><br>
+      <b>① 换手成本。</b>共同区间内三套策略的调仓频率约 <b>58~96 次/年</b>（融合策略约 79~82 次/年）。
+      按「单边 0.05%」估算，年均成本约 <b>1.0%~1.7%</b>；若按更保守的单边 0.1%（含冲击成本），则约 <b>2.0%~3.4%</b>。
+      也就是说：<b>在沪深300 上（融合策略年化仅 1.4%），成本可能把超额收益全部吃掉</b>；
+      在中证1000 / 国证2000 上（年化 3.0%~6.1%）才留有空间。<b>本页所有回测均未扣成本。</b><br>
+      <b>② 区间代表性。</b>本表区间自 2015 年起，只覆盖一轮完整牛熊 + 一轮结构市；同一体系在更长的历史上表现明显不同
+      （见下方补充）——<b>不要把这里的数字外推到其他年代</b>。
+    </div>
+
+    <div class="logic-sec tech">
+      <details>
+        <summary>补充：更长历史的校验（沪深300 自 2002、中证500 自 2005）</summary>
+        <div class="sub" style="margin:8px 0 4px">更长的区间包含了 2005~2007 大牛市与 2008 大熊市，结论与上表<b>并不一致</b>，一并列出。</div>
+        <div style="overflow-x:auto">
+          <table class="cmp">
+            <thead><tr><th>指数</th><th class="c-name">策略</th><th>区间收益</th><th>年化</th><th>最大回撤</th><th>Calmar</th></tr></thead>
+            <tbody>
+          <tr><td class="idxname">沪深300</td><td class="c-name">均线策略</td><td class="pos">379.3%</td><td>6.9%</td><td class="neg">-34.5%</td><td>10.99</td></tr>
+          <tr><td class="idxname">沪深300</td><td class="c-name">量价策略</td><td class="pos">62.7%</td><td>2.1%</td><td class="neg">-20.0%</td><td>3.14</td></tr>
+          <tr><td class="idxname">沪深300</td><td class="c-name">融合策略</td><td class="pos">177.7%</td><td>4.4%</td><td class="neg">-22.7%</td><td>7.82</td></tr>
+          <tr><td class="idxname">沪深300</td><td class="c-name">长期持有</td><td class="pos">233.8%</td><td>5.3%</td><td class="neg">-72.3%</td><td>3.23</td></tr>
+          <tr><td class="idxname">中证500</td><td class="c-name">均线策略</td><td class="pos">905.7%</td><td>11.9%</td><td class="neg">-41.2%</td><td>21.99</td></tr>
+          <tr><td class="idxname">中证500</td><td class="c-name">量价策略</td><td class="pos">113.0%</td><td>3.7%</td><td class="neg">-29.6%</td><td>3.82</td></tr>
+          <tr><td class="idxname">中证500</td><td class="c-name">融合策略</td><td class="pos">269.2%</td><td>6.5%</td><td class="neg">-34.9%</td><td>7.72</td></tr>
+          <tr><td class="idxname">中证500</td><td class="c-name">长期持有</td><td class="pos">825.1%</td><td>11.4%</td><td class="neg">-72.4%</td><td>11.39</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <ul>
+          <li><b>沪深300（2002-05 起，约 24 年）</b>：均线策略 <b>+379%</b> 反超长期持有（+234%），融合策略 +178% 落后；
+            回撤方面三条策略都显著优于长期持有（−20%~−34% vs −72%）。</li>
+          <li><b>中证500（2005-05 起，约 21 年）</b>：均线策略 <b>+906%</b> 略胜长期持有（+825%），但融合策略只有 +269%
+            —— <b>量价那一层在这一段长历史里拖累很大</b>。</li>
+          <li><b>怎么读这两张表：</b>「融合策略」在<b>小盘、波动大</b>的近十年更好；在<b>包含超级牛市</b>的长历史里，<b>纯均线策略</b>最占优。
+            取舍取决于你更在意哪类行情 —— 两个结论都不是"普适最优"。</li>
+        </ul>
+      </details>
+    </div>
+  </section>
+
+  <footer>AI仓位 · 大盘择时双策略对比回测 · 数据来自公开行情接口</footer>
+</div>
+</div>
+<script>
+
+/* =====================================================================
+ * AI仓位 · 大盘择时双策略对比回测
+ * 策略A 均线状态机：锚定指数 5/10/20 日均线（Z0/Z1/Z2/Z3）
+ * 策略B 量价规则  ：VR / 换手率 / 上影线 / C-MA60 / VOL-MA30 → 0~8成
+ * 策略C 融合      ：仓位 = min(A仓位, B仓位)
+ * 三条仓位曲线分别应用到输入股票，默认一次性对比。纯前端实现。
+ * ===================================================================== */
+
+// ===== 全局配置 =====
+const _charts = [];
+/* =====================================================================
+ * 固定口径：面板不暴露这些旋钮，取值在此固化（改这里即可换口径）
+ *   R0        平均换手率基准（%）——指数无公开流通股本，用成交额口径校准近似
+ *   fuseMode  融合口径：'blendC' 加权混合 + 空仓否决（当前采用）
+ *   fuseW     融合中均线策略的权重 w（默认 0.5，即 均线 50% + 量价 50%）
+ *   vpLevels  量价档位数：4（默认）或 6
+ *   vetoMode  否决规则：'any' 任一策略空仓即清仓（默认）／'c' 仅量价空仓时才清仓
+ * ===================================================================== */
+const FIXED = {
+  R0: 1.0,
+  fuseMode: 'blendC',
+  fuseW: 0.5,
+  vpLevels: 4,           // 量价档位数：4（0/30/50/100，默认）或 6（0/10/20/30/50/80）
+  vetoMode: 'any',       // 融合的否决规则：'any' 任一策略空仓即清仓（默认）／'c' 仅量价空仓时才清仓
+  squeezeVeto: true,     // 是否叠加策略四（均线粘合且缩量 → 在融合仓位之上清仓）
+  sqVRTHIN: 0.8,         // 策略四的「缩量线」：成交量 < sqVRTHIN × MA(VOL,20) 视为缩量
+                         //   0.8 = 当前采用；放宽到 1.0 可把触发面从约 1.5% 提到约 9%（实测结论见说明页）
+  sqFilterMA: 20         // 策略四的「位置过滤」：还必须跌破 MA(sqFilterMA) 才清仓
+                         //   20 = 当前采用；0 = 关闭该过滤（退化为「粘合∧缩量即清仓」）
+};
+
+/* 量价策略档位表（两套，由 FIXED.vpLevels 切换）
+ * 4 档（默认，与均线策略同档）：0 / 30 / 50 / 100%
+ *   内部规则沿用历史的七档标记，映射为：1→0%（清仓）／3→30%／5→50%／8→50%／满仓→100%
+ * 6 档（历史版本）：0 / 10 / 20 / 30 / 50 / 80%
+ * 三指数全期 Calmar（起点 2018-09-27）实测：
+ *   6 档 → 量价 0.64 / 融合 0.75 ｜ 4 档 → 量价 1.00 / 融合 1.10
+ *   平均仓位 24.5% → 20.7%（仓位更低而收益更高）*/
+const VP_LV = FIXED.vpLevels === 4
+  ? { v: { 0:0, 1:0,    2:0,    3:0.30, 5:0.50, 8:0.50 },
+      n: { 0:'清仓', 1:'清仓', 2:'清仓', 3:'三成', 5:'半仓', 8:'半仓' } }
+  : { v: { 0:0, 1:0.10, 2:0.20, 3:0.30, 5:0.50, 8:0.80 },
+      n: { 0:'清仓', 1:'轻仓', 2:'两成', 3:'三成', 5:'半仓', 8:'八成' } };
+
+const FQ_NAME = { hfq: '后复权', qfq: '前复权', '': '不复权' };
+const IDX_NAME = { sh000001: '上证指数', sz399001: '深证成指', sh000300: '沪深300', sz399006: '创业板指', sh932000: '中证2000' };
+
+const BT = {
+  POS: { Z0: 0, Z1: 0.30, Z2: 0.50, Z3: 1.00 },            // 均线状态 → 仓位
+  TH:  { TREND: 55, PBREAK: 10, ABOVE20: 20, DROP: -1.0 }, // 均线阈值（指数点位）
+  DEFAULT_YEARS: 1,                                     // 默认回测区间 = 最近 1 年（按打开页面的当天滚动计算）
+  DEFAULT_RANGE: { start: '2025-09-15', end: '2026-09-15' },   // 静态兜底值（脚本未执行时表单显示的日期）
+  DEFAULT_R0: 1.0,
+  STATE_COLOR: { Z0: '#9ca3af', Z1: '#f5a623', Z2: '#3b82f6', Z3: '#e0434b' },
+  STATE_NAME: { Z0: '空仓', Z1: '轻仓', Z2: '半仓', Z3: '重仓' },
+  COLOR: { ma: '#2563eb', vp: '#f5a623', sq: '#0d9488', fu: '#8b5cf6', bh: '#9ca3af' }
+};
+
+// 量价策略阈值（对应《大盘理解》第二章）
+const VP = {
+  MA60_HIGH: 1.10,   // C/MA60 高位线
+  MA60_LOW : 0.92,   // C/MA60 低位线
+  VR_STRONG: 1.8,    // VR 放量（强）
+  VR_UP    : 1.3,    // VR 放量
+  VR_WEAK  : 0.8,    // VR 缩量
+  VR_DRY   : 0.6,    // VR 极度缩量
+  DROP_BIG : -1.5,   // 大涨大跌判定（%）
+  FLAT     : 0.5,    // 滞涨判定 |涨幅|<0.5%
+  SHADOW   : 0.3,    // 上影线阈值(%)
+  R_HIGH   : 1.5,    // 换手率偏高
+  R_EXTREME: 2.5,    // 换手率极高
+  R_DRY    : 0.5,    // 换手率极低
+  R_MID_LO : 0.8,    // 换手率区间下沿
+  R_MID_HI : 1.5,    // 换手率区间上沿
+  V_HUGE   : 2.0,    // 天量：V > 2.0 × MA(VOL,30)
+  V_DRY    : 0.6,    // 地量：V < 0.6 × MA(VOL,30)
+  NEAR60   : 0.02,   // 60日低点"附近"容差
+  RISE     : 1.5,    // 涨幅强阈值(%)
+  LB       : 60      // 高低点 / 前高量 回看窗口
+};
+
+// 基础仓位（成 → 比例）
+const CN = { 0:0, 1:0.10, 2:0.20, 3:0.30, 5:0.50, 8:0.80 };
+
+// ===== 工具函数 =====
+function round2(x){ return Math.round(x * 100) / 100; }
+function fmtPct(x, d){ if (x == null) return '—'; d = d == null ? 2 : d; return (x >= 0 ? '+' : '') + (x * 100).toFixed(d) + '%'; }
+function fmtNum(x, d){ return x == null ? '—' : x.toFixed(d == null ? 2 : d); }
+function mean(a){ return a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0; }
+function std(a){ if (a.length < 2) return 0; const m = mean(a); return Math.sqrt(a.reduce((s, v) => s + (v - m) * (v - m), 0) / (a.length - 1)); }
+function maxArr(a){ let m = -Infinity; for (const v of a) if (v > m) m = v; return m; }
+function minArr(a){ let m = Infinity; for (const v of a) if (v < m) m = v; return m; }
+
+function sma(vals, n){
+  const out = new Array(vals.length).fill(null);
+  let s = 0;
+  for (let i = 0; i < vals.length; i++){
+    s += vals[i];
+    if (i >= n) s -= vals[i - n];
+    if (i >= n - 1) out[i] = s / n;
+  }
+  return out;
+}
+
+function normalizeCode(input){
+  let s = String(input || '').trim().toLowerCase().replace(/\s+/g, '');
+  if (!s) return null;
+  let m = s.match(/^(\d{6})\.(sh|sz|bj)$/);
+  if (m) return m[2] + m[1];
+  if (/^(sh|sz|bj)\d{6}$/.test(s)) return s;
+  if (/^\d{6}$/.test(s)){
+    const h = s[0];
+    if (h === '6' || h === '9') return 'sh' + s;
+    if (h === '0' || h === '3' || h === '2') return 'sz' + s;
+    if (h === '4' || h === '8') return 'bj' + s;
+    return 'sh' + s;
+  }
+  return null;
+}
+
+/* 默认回测区间 = 最近 N 年。按打开页面的当天滚动计算；
+   用本地时间手工拼 ISO，避免 toISOString() 的 UTC 偏移导致差一天。 */
+function recentRange(years){
+  const fmt = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
+                  String(d.getDate()).padStart(2, '0');
+  const now = new Date();
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  start.setFullYear(start.getFullYear() - years);
+  return { start: fmt(start), end: fmt(end) };
+}
+function applyPreset(years){
+  const r = years ? recentRange(years) : BT.DEFAULT_RANGE;
+  const s = document.getElementById('start'), e = document.getElementById('end');
+  if (s) s.value = r.start;
+  if (e) e.value = r.end;
+  document.querySelectorAll('[data-preset]').forEach(b => b.classList.toggle('on', Number(b.dataset.preset) === years));
+}
+
+function daysBefore(dateStr, nDays){
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() - nDays);
+  return d.toISOString().slice(0, 10);
+}
+
+function maxDrawdown(arr){
+  let peak = -Infinity, mdd = 0;
+  for (const v of arr){ peak = Math.max(peak, v); if (peak > 0) mdd = Math.min(mdd, v / peak - 1); }
+  return mdd;
+}
+
+
+// ===== 本地库取数（quant-data kline parquet → TIMING_DB）+ 网络补取 =====
+var TIMING_DB = /*__TIMING_DB__*/{};
+
+function _dbRowsToObj(rows){
+  // rows: [[date,o,c,h,l,v], ...] or [{date,open,close,...}]
+  if (!rows || !rows.length) return null;
+  if (typeof rows[0] === 'object' && !Array.isArray(rows[0])) {
+    const out = rows.map(r => ({
+      date: String(r.date).slice(0,10),
+      open:+r.open, close:+r.close, high:+r.high, low:+r.low, vol:+(r.vol||r.volume||0)
+    }));
+    return out;
+  }
+  const out = rows.map(r => ({
+    date: r[0], open:+r[1], close:+r[2], high:+r[3], low:+r[4], vol:+(r[5]||0)
+  }));
+  return out;
+}
+function _sliceRows(rows, start, end){
+  if (!rows) return null;
+  const out = rows.filter(r => r.date >= start && r.date <= end);
+  return out.length ? out : null;
+}
+function lookupTimingDB(sym, start, end, opts){
+  opts = opts || {};
+  const code = sym.replace(/^(sh|sz|bj)/, '');
+  const db = TIMING_DB || {};
+  const wantStock = opts.fq === 'hfq' || opts.fq === 'qfq' || opts.fq === true;
+  function fromIndex(){
+    const idx = (db.indices || {})[code] || (db.indices || {})[sym];
+    if (!idx) return null;
+    const rows = _sliceRows(_dbRowsToObj(idx.rows || idx), start, end);
+    if (!rows) return null;
+    rows.fq = ''; rows._src = 'db:index'; return rows;
+  }
+  function fromStock(){
+    const bag = (db.stocks || {})[code] || (db.stocks || {})[sym] ||
+                (db.stocks || {})['1.'+code] || (db.stocks || {})['0.'+code];
+    if (!bag) return null;
+    const series = bag.hfq || bag.raw || bag.rows;
+    const rows = _sliceRows(_dbRowsToObj(series), start, end);
+    if (!rows) return null;
+    rows.fq = bag.hfq ? 'hfq' : '';
+    rows._src = 'db:stock';
+    return rows;
+  }
+  // 交易标的（hfq）优先股票，避免 000001 指数/平安银行 冲突；锚定指数走 indices
+  if (wantStock){
+    return fromStock() || fromIndex();
+  }
+  return fromIndex() || fromStock();
+}
+
+
+// ===== 行情数据获取（腾讯主源 + 东财/新浪降级） =====
+/* 腾讯「单次最多 2000 根」，且返回的是「截止 end 的最近 N 根」而不是从 start 起的前 N 根。
+   所以 10 年这种长区间（含 620 天预热约需 2,860 根）必须向更早翻页拼接，
+   否则会静默截断到最近约 8 年 —— 表现为回测区间悄悄变短。 */
+async function fetchTencentPage(sym, start, end, fq){
+  const url = 'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=' +
+    sym + ',day,' + start + ',' + end + ',2000,' + fq;
+  const res = await fetch(url, { credentials: 'omit' });
+  if (!res.ok) throw new Error('腾讯行情请求失败(' + res.status + ')');
+  const j = await res.json();
+  const d = j && j.data;
+  if (!d || typeof d !== 'object' || !d[sym]) throw new Error('腾讯行情未返回该代码数据');
+  const node = d[sym];
+  if (typeof node !== 'object') throw new Error('腾讯行情参数超出上限');
+  const key = fq === 'hfq' ? 'hfqday' : (fq === 'qfq' ? 'qfqday' : 'day');
+  return node[key] || null;
+}
+/* 逐页拼接（各页「全局锚定」，重叠区间数值完全一致，拼接安全）。
+   返回 { rows, ok }：ok=false 表示序列里出现了非正价格。 */
+async function fetchTencentSeries(sym, start, end, fq){
+  const arr = await fetchTencentPage(sym, start, end, fq);
+  if (!arr || !arr.length) return null;
+  const pages = [arr];
+  for (let guard = 0; guard < 12; guard++){
+    const first = pages[0][0][0];
+    if (first <= start) break;                                  // 已覆盖到 start
+    const prev = await fetchTencentPage(sym, start, daysBefore(first, 1), fq);
+    if (!prev || !prev.length) break;
+    if (prev[0][0] >= first) break;                             // 没有向前推进 → 防死循环
+    pages.unshift(prev);
+  }
+  const seen = Object.create(null), out = [];
+  for (const pg of pages) for (const r of pg){
+    if (seen[r[0]]) continue;
+    seen[r[0]] = 1;
+    out.push({ date: r[0], open: +r[1], close: +r[2], high: +r[3], low: +r[4], vol: +(r[5] || 0) });
+  }
+  out.sort((a, b) => a.date < b.date ? -1 : (a.date > b.date ? 1 : 0));
+  const ok = out.every(r => r.close > 0 && r.high > 0 && r.low > 0);
+  return { rows: out, ok: ok };
+}
+async function fetchTencent(sym, start, end, useFq){
+  const want = useFq === false ? '' : (typeof useFq === 'string' ? useFq : 'qfq');
+  const tried = [];
+  for (const cand of (want === '' ? [''] : [want, ''])){
+    const s = await fetchTencentSeries(sym, start, end, cand);
+    if (!s){ tried.push((FQ_NAME[cand] || cand) + '取不到'); continue; }
+    if (s.ok || cand === ''){
+      s.rows.fq = cand;
+      return s.rows;                                            // 目标口径可用（或已降级到不复权）
+    }
+    tried.push((FQ_NAME[cand] || cand) + '含非正价格');
+  }
+  throw new Error('腾讯行情返回为空' + (tried.length ? '（' + tried.join('，') + '）' : ''));
+}
+
+async function fetchEastmoney(sym, start, end, useFq){
+  const ex = sym.slice(0, 2);
+  const code = sym.slice(2);
+  // 93 开头是中证指数公司自编代码，不在沪深交易所挂牌，东财用市场号 2
+  const secid = /^9\d{5}$/.test(code) ? '2.' + code : (ex === 'sh' ? '1' : '0') + '.' + code;
+  const want = useFq === false ? '' : (typeof useFq === 'string' ? useFq : 'qfq');
+  const fqt = want === 'hfq' ? 2 : (want === 'qfq' ? 1 : 0);      // 0 不复权 / 1 前复权 / 2 后复权
+  const url = 'https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=' + secid +
+    '&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57&klt=101&fqt=' + fqt + '&' +
+    'beg=' + start.replace(/-/g, '') + '&end=' + end.replace(/-/g, '');
+  const res = await fetch(url, { credentials: 'omit' });
+  if (!res.ok) throw new Error('东财行情请求失败(' + res.status + ')');
+  const j = await res.json();
+  const kl = (j && j.data && j.data.klines) || [];
+  if (!kl.length) throw new Error('东财行情返回为空');
+  const rows = kl.map(line => {
+    const p = line.split(',');
+    return { date: p[0], open: +p[1], close: +p[2], high: +p[3], low: +p[4], vol: +p[5] };
+  });
+  rows.fq = want;
+  return rows;
+}
+
+function fetchSinaJSONP(sym, start){
+  return new Promise((resolve, reject) => {
+    const cb = '__bt_sina_' + Math.random().toString(36).slice(2, 10);
+    const url = 'https://quotes.sina.cn/cn/api/jsonp_v2.php/' + cb +
+      '/CN_MarketDataService.getKLineData?symbol=' + sym + '&scale=240&ma=no&datalen=1023';
+    const cleanup = () => { delete window[cb]; const s0 = document.getElementById('__bt_sina_script'); if (s0) s0.remove(); };
+    window[cb] = function(data){
+      cleanup();
+      const rows = (Array.isArray(data) ? data : []).map(o => ({
+        date: o.day, open: +o.open, close: +o.close, high: +o.high, low: +o.low, vol: +(o.volume || 0)
+      })).filter(r => r.date >= start).sort((a, b) => a.date < b.date ? -1 : 1);
+      rows.fq = '';                                             // 新浪该接口只提供不复权价
+      rows.length ? resolve(rows) : reject(new Error('新浪行情返回为空'));
+    };
+    const s = document.createElement('script');
+    s.id = '__bt_sina_script';
+    s.src = url;
+    s.onerror = () => { cleanup(); reject(new Error('新浪行情加载失败')); };
+    document.head.appendChild(s);
+  });
+}
+
+/* 中证指数公司自编代码（93xxxx，如中证2000 = 932000）：腾讯 / 新浪都不提供该类指数，
+   东财也常被 WAF 拦。唯一稳定来源是中证指数官网（csindex.com.cn），但它的 CORS 头是固定值，
+   浏览器跨域拿不到 → 由本站代理 /api/csindex 代为转发。
+   该接口返回字段：tradeDate / open / high / low / close / tradingVol（成交量，股）。 */
+async function fetchCsindexProxy(sym, start, end){
+  const code = sym.replace(/^(sh|sz|bj)/, '');
+  if (!/^9\d{5}$/.test(code)) throw new Error('只有 93 开头的中证指数代码才走该源');
+  // 固定请求「基日 → 今天」整段，再在本地按区间过滤：
+  // 这样代理端只需缓存一条记录，任何回测区间都能命中，官网也不会被反复请求
+  const _now = new Date();
+  const endDate = _now.getFullYear() + '-' + String(_now.getMonth() + 1).padStart(2, '0') +
+                  '-' + String(_now.getDate()).padStart(2, '0');
+  const url = '/api/csindex?indexCode=' + code + '&startDate=20131231' +
+              '&endDate=' + endDate.replace(/-/g, '');
+  const res = await fetch(url, { credentials: 'omit' });
+  if (!res.ok) throw new Error('代理请求失败(' + res.status + ')');
+  const j = await res.json();
+  const arr = (j && Array.isArray(j.data)) ? j.data : [];
+  const rows = arr.filter(r => r && r.tradeDate && r.close != null).map(r => ({
+    date: r.tradeDate.slice(0, 4) + '-' + r.tradeDate.slice(4, 6) + '-' + r.tradeDate.slice(6, 8),
+    open: +(r.open == null ? r.close : r.open),
+    close: +r.close,
+    high: +(r.high == null ? r.close : r.high),
+    low: +(r.low == null ? r.close : r.low),
+    vol: +(r.tradingVol || 0)
+  })).filter(r => r.date >= start && r.date <= end && r.close > 0)
+    .sort((a, b) => a.date < b.date ? -1 : 1);
+  if (!rows.length) throw new Error('官网该区间无数据');
+  rows.fq = '';                       // 指数发布价，本身即不复权
+  return rows;
+}
+
+async function fetchKline(sym, start, end, opts){
+  opts = opts || {};
+  const local = lookupTimingDB(sym, start, end, opts);
+  if (local && local.length){
+    // 本地库命中：仍做覆盖度检查由上层处理
+    return local;
+  }
+  // 本地库取不到 → 网络补取（腾讯/东财/新浪/中证）
+  const errors = ['本地库无 ' + sym];
+  const code = sym.replace(/^(sh|sz|bj)/, '');
+  const chain = /^9\d{5}$/.test(code)
+    ? [['中证官网', fetchCsindexProxy], ['东财', fetchEastmoney], ['腾讯', fetchTencent], ['新浪', fetchSinaJSONP]]
+    : [['腾讯', fetchTencent], ['东财', fetchEastmoney], ['新浪', fetchSinaJSONP], ['中证官网', fetchCsindexProxy]];
+  for (const pair of chain){
+    try {
+      const rows = await pair[1](sym, start, end, opts.fq);
+      if (rows){ rows._src = 'net:' + pair[0]; return rows; }
+    }
+    catch (e) { errors.push(pair[0] + ':' + e.message); }
+  }
+  throw new Error('本地库与行情源均失败。<br>' + errors.join('<br>'));
+}
+
+/* =====================================================================
+ * 策略A：均线状态机（《大盘理解》第一章）
+ * ===================================================================== */
+function computeMaStrategy(rows){
+  const n = rows.length;
+  const closes = rows.map(r => r.close);
+  const ma5 = sma(closes, 5), ma10 = sma(closes, 10), ma20 = sma(closes, 20);
+  const TH = BT.TH;
+  let state = 'Z0', sub = 'Z0-1', P = null;
+  const perDay = [], events = [];
+
+  for (let i = 0; i < n; i++){
+    const r = rows[i], c = r.close;
+    const m5 = ma5[i], m10 = ma10[i], m20 = ma20[i];
+    if (m5 == null || m10 == null || m20 == null) continue;
+    const pm5 = ma5[i - 1], pm10 = ma10[i - 1];
+    const pct = i > 0 ? (c / closes[i - 1] - 1) * 100 : 0;
+    const turnUp = pm5 != null && pm10 != null && m5 > pm5 && m10 > pm10;
+    const condS0 = m5 < m10 && m5 < m20;
+    const condS02 = m5 < m20 && pct < TH.DROP;
+    const spread = m20 - m5;
+    const bull = c > m5 && m5 > m10 && m10 > m20;
+
+    if (state !== 'Z0' && (condS0 || condS02)){
+      const act = condS0 ? 'S0' : 'S0-2';
+      events.push({ date: r.date, action: act, from: state, to: 'Z0', price: round2(c),
+        note: condS0 ? '5/10/20 均线空头且股价在 20MA 下，逃顶空仓' : '5日线下穿20日线且当日跌幅超1%，破位空仓' });
+      state = 'Z0'; sub = spread > TH.TREND ? 'Z0-2' : 'Z0-1'; P = null;
+    } else if (state === 'Z0'){
+      sub = spread > TH.TREND ? 'Z0-2' : 'Z0-1';
+      if (turnUp){
+        if (sub === 'Z0-2'){
+          P = r.low;
+          events.push({ date: r.date, action: 'B1', from: 'Z0', to: 'Z1', price: round2(c),
+            note: '大跌后 5/10 日线拐头向上，抄底轻仓（记录抄底日最低价 P=' + round2(P) + '）' });
+          state = 'Z1'; sub = 'Z1';
+        } else {
+          events.push({ date: r.date, action: 'B1-1', from: 'Z0', to: 'Z1', price: round2(c),
+            note: '空仓指标消失，5/10 日线同时拐头向上，回补轻仓' });
+          state = 'Z1'; sub = 'Z1-1';
+        }
+      }
+    } else if (state === 'Z1'){
+      if (P != null && (P - c) > TH.PBREAK){
+        events.push({ date: r.date, action: 'S0-1', from: 'Z1', to: 'Z0', price: round2(c),
+          note: '股价有效跌破抄底日最低价 P，二次清仓' });
+        state = 'Z0'; sub = spread > TH.TREND ? 'Z0-2' : 'Z0-1'; P = null;
+      } else if ((c - m20) > TH.ABOVE20){
+        events.push({ date: r.date, action: 'B2', from: 'Z1', to: 'Z2', price: round2(c),
+          note: '风险解除，有效站上 20 日线，加至半仓' });
+        state = 'Z2'; sub = 'Z2';
+      } else if (bull){
+        events.push({ date: r.date, action: 'B3', from: 'Z1', to: 'Z3', price: round2(c),
+          note: '股价/5/10/20 均线多头排列，加至重仓' });
+        state = 'Z3'; sub = 'Z3';
+      }
+    } else if (state === 'Z2'){
+      if ((m20 - c) > 0){
+        events.push({ date: r.date, action: 'S1', from: 'Z2', to: 'Z1', price: round2(c),
+          note: '跌破 20 日线，减至轻仓' });
+        state = 'Z1'; sub = 'Z1-2';
+      } else if (bull){
+        events.push({ date: r.date, action: 'B3', from: 'Z2', to: 'Z3', price: round2(c),
+          note: '均线多头排列，加至重仓' });
+        state = 'Z3'; sub = 'Z3';
+      }
+    } else if (state === 'Z3'){
+      if ((m10 - c) > 0){
+        events.push({ date: r.date, action: 'S2', from: 'Z3', to: 'Z2', price: round2(c),
+          note: '跌破 10 日线，高位减至半仓' });
+        state = 'Z2'; sub = 'Z2';
+      } else if ((m20 - c) > 0){
+        events.push({ date: r.date, action: 'S1', from: 'Z3', to: 'Z1', price: round2(c),
+          note: '跌破 20 日线，减至轻仓' });
+        state = 'Z1'; sub = 'Z1-2';
+      }
+    }
+
+    // 若当日产生状态切换事件，则把该动作编号带入 perDay，供成交明细的「驱动信号」列展示
+    const dayAct = (events.length && events[events.length - 1].date === r.date) ? events[events.length - 1].action : null;
+    perDay.push({ date: r.date, state: state, sub: sub, pos: BT.POS[state],
+      tags: dayAct ? [dayAct] : [],
+      ma5: m5, ma10: m10, ma20: m20, pct: pct, price: c });
+  }
+  return { perDay: perDay, events: events };
+}
+
+/* =====================================================================
+ * 策略B：量价规则（《大盘理解》第二章）
+ * 变量：VR=VOL/MA(VOL,20)；R=换手率(成交额口径近似)；C/MA60；V/MA(VOL,30)；上影线
+ * 规则：0/1/2/3/5/8 成；同日多规则取最低仓位；无规则沿用前值。
+ * ===================================================================== */
+function computeVolPriceStrategy(rows, R0, fallback){
+  R0 = (R0 == null || !(R0 > 0)) ? BT.DEFAULT_R0 : R0;
+  fallback = (fallback === 'carry') ? 'carry' : 'quadrant';   // 'quadrant' 象限兜底（默认） | 'carry' 原表口径
+  const counters = { rule: 0, fallback: 0, carry: 0 };        // 决策依据计数（仅统计指标就绪日）
+  const n = rows.length;
+  const open = rows.map(r => r.open), close = rows.map(r => r.close);
+  const high = rows.map(r => r.high), low = rows.map(r => r.low), vol = rows.map(r => r.vol);
+
+  const ma5 = sma(close, 5), ma20 = sma(close, 20), ma60 = sma(close, 60);
+  const vma20 = sma(vol, 20), vma30 = sma(vol, 30);
+  const amt = close.map((c, i) => c * vol[i]);
+  const amtMa60 = sma(amt, 60);
+
+  const vr = new Array(n).fill(null), R = new Array(n).fill(null);
+  for (let i = 0; i < n; i++){
+    if (vma20[i] > 0) vr[i] = vol[i] / vma20[i];
+    if (amtMa60[i] > 0) R[i] = amt[i] / amtMa60[i] * R0;   // 换手率近似(%)
+  }
+  // OBV
+  const obv = new Array(n).fill(0);
+  for (let i = 1; i < n; i++){
+    const d = close[i] - close[i - 1];
+    obv[i] = obv[i - 1] + (d > 0 ? vol[i] : (d < 0 ? -vol[i] : 0));
+  }
+
+  const pctAt = i => (i > 0 && close[i - 1] > 0) ? (close[i] / close[i - 1] - 1) * 100 : 0;
+  const shadowAt = i => { const c = close[i]; return c > 0 ? (high[i] - Math.max(open[i], c)) / c * 100 : 0; };
+  const hi60At = i => (i >= VP.LB - 1) ? maxArr(close.slice(i - VP.LB + 1, i + 1)) : null;
+  const lo60At = i => (i >= VP.LB - 1) ? minArr(close.slice(i - VP.LB + 1, i + 1)) : null;
+  const newHighAt = i => { const h = hi60At(i); return h != null && close[i] >= h - 1e-9; };
+  const nearLowAt = i => { const l = lo60At(i); return l != null && close[i] <= l * (1 + VP.NEAR60); };
+  const prevHighVolAt = i => (i >= VP.LB) ? maxArr(vol.slice(i - VP.LB, i)) : null;
+  const shrinkHighAt = i => { const pv = prevHighVolAt(i); return newHighAt(i) && pv != null && vol[i] < pv * 0.8; };
+  const divergenceAt = i => i > 0 && pctAt(i) > 0 && vol[i] < vol[i - 1];
+  const belowM5At = i => ma5[i] != null && close[i] < ma5[i];
+  const dryAt = i => i >= 0 && vma30[i] != null && R[i] != null && vol[i] < VP.V_DRY * vma30[i] && nearLowAt(i) && R[i] < VP.R_DRY;
+  // 高位放量滞涨（单日）
+  const stallAt = i => {
+    if (i < 0 || ma60[i] == null || vr[i] == null || R[i] == null) return false;
+    const ratio = close[i] / ma60[i];
+    return ratio > VP.MA60_HIGH && vr[i] > VP.VR_STRONG &&
+      (Math.abs(pctAt(i)) < VP.FLAT || shadowAt(i) > VP.SHADOW) && R[i] > VP.R_HIGH;
+  };
+  // 天量天价前提（单日）
+  const hugeTopAt = j => {
+    if (j < VP.LB - 1 || vma30[j] == null || R[j] == null) return false;
+    return vol[j] > VP.V_HUGE * vma30[j] && close[j] >= hi60At(j) - 1e-9 && R[j] > VP.R_EXTREME;
+  };
+
+  const perDay = [], events = [];
+  let pos = 0.5;          // 预热期 / 无信号时：中性半仓
+  let prevPos = null;
+
+  for (let i = 0; i < n; i++){
+    const c = close[i], o = open[i], v = vol[i];
+    const ready = ma60[i] != null && vma30[i] != null && vr[i] != null && R[i] != null && amtMa60[i] != null;
+    const cand = [];   // {pos, tag, note}
+
+    if (ready){
+      const pct = pctAt(i);
+      const ratio60 = c / ma60[i];
+      const sh = shadowAt(i);
+      const hi60 = hi60At(i), lo60 = lo60At(i);
+      const newHigh = hi60 != null && c >= hi60 - 1e-9;
+      const nearLow = lo60 != null && c <= lo60 * (1 + VP.NEAR60);
+      const shrinkHigh = shrinkHighAt(i);
+      const divergence = divergenceAt(i);
+      const prevDivergence = divergenceAt(i - 1);
+      const belowM5 = belowM5At(i);
+      const hi20Prev = i >= 20 ? maxArr(close.slice(i - 20, i)) : null;
+      const obvNoHigh = i >= VP.LB && obv[i] <= maxArr(obv.slice(i - VP.LB, i)) + 1e-9;
+
+      /* ---------- 0 成：空仓，风险高 ---------- */
+      // ① 量增价跌（高位）
+      if (ratio60 > VP.MA60_HIGH && vr[i] > VP.VR_STRONG && pct < VP.DROP_BIG && ma5[i] != null && c < ma5[i])
+        cand.push({ pos: CN[0], tag: '0成①', note: '量增价跌（高位），清仓避险' });
+      // ② 高位放量滞涨连续2日
+      if (stallAt(i) && stallAt(i - 1))
+        cand.push({ pos: CN[0], tag: '0成②', note: '高位放量滞涨连续2日，清仓' });
+      // ③ 天量天价，次日低开或收阴
+      if (i > 0 && hugeTopAt(i - 1) && (o < close[i - 1] || c < o))
+        cand.push({ pos: CN[0], tag: '0成③', note: '天量天价后次日低开/收阴，清仓' });
+      // ④ 地量地价
+      if (dryAt(i))
+        cand.push({ pos: CN[0], tag: '0成④', note: '地量地价，空仓观望' });
+      // ⑤ 低位无量
+      if (ratio60 < VP.MA60_LOW && vr[i] < VP.VR_DRY && R[i] < VP.R_DRY)
+        cand.push({ pos: CN[0], tag: '0成⑤', note: '低位无量，空仓等待' });
+      // ⑥ 量价背离确认（连续2日价涨量缩）或 高位跌破MA5
+      //   口径说明：原文「连续2日量价背离或跌破MA5」按字面实现时命中率约 40%、
+      //   会吞掉其余全部信号并使策略退化为 0/50 两态；合并信号列将该条语义标注为
+      //   「量价背离确认」，故此处对「跌破MA5」分支加「高位」限定（C/MA60>1.10），
+      //   使其回归「空仓·风险高」的定位（实测命中率约 5%）。
+      if ((divergence && prevDivergence) ||
+          (belowM5 && ma60[i] != null && ratio60 > VP.MA60_HIGH))
+        cand.push({ pos: CN[0], tag: '0成⑥', note: '量价背离确认 / 高位跌破MA5，清仓' });
+
+      /* ---------- 1 成：轻仓，风险未解除 ---------- */
+      // ① 量增价跌（低位）首日
+      if (ratio60 < VP.MA60_LOW && vr[i] > VP.VR_UP && pct < VP.DROP_BIG)
+        cand.push({ pos: CN[1], tag: '1成①', note: '量增价跌（低位）首日，轻仓' });
+      // ② 量缩价跌
+      if (vr[i] < VP.VR_WEAK && pct < 0 && ma20[i] != null && c < ma20[i])
+        cand.push({ pos: CN[1], tag: '1成②', note: '量缩价跌，轻仓防守' });
+      // ③ 高位放量滞涨首日
+      if (stallAt(i))
+        cand.push({ pos: CN[1], tag: '1成③', note: '高位放量滞涨首日，减至轻仓' });
+      // ④ 地量地价后放量阳线
+      if (i > 0 && dryAt(i - 1) && pct > 0 && vma20[i] != null && v > vma20[i])
+        cand.push({ pos: CN[1], tag: '1成④', note: '地量地价后放量阳线，轻仓试错' });
+
+      /* ---------- 2 成：轻仓试错，等确认 ---------- */
+      // ① 量增价跌（低位）确认
+      if (i > 0 && ma60[i - 1] != null && vr[i - 1] != null &&
+          (close[i - 1] / ma60[i - 1]) < VP.MA60_LOW && vr[i - 1] > VP.VR_UP && pctAt(i - 1) < VP.DROP_BIG &&
+          low[i] > low[i - 1] && c > close[i - 1])
+        cand.push({ pos: CN[2], tag: '2成①', note: '量增价跌（低位）确认，轻仓试错' });
+      // ② 价创新高但缩量
+      if (shrinkHigh)
+        cand.push({ pos: CN[2], tag: '2成②', note: '创新高但量低于前高量×0.8，轻仓试错' });
+      // ③ 突破20日高点且放量
+      if (hi20Prev != null && c > hi20Prev && vr[i] > VP.VR_UP)
+        cand.push({ pos: CN[2], tag: '2成③', note: '突破20日高点且放量，轻仓试错' });
+      // ④ 价创新高但 OBV 不创新高
+      if (newHigh && obvNoHigh)
+        cand.push({ pos: CN[2], tag: '2成④', note: '价创新高但 OBV 未创新高，量价背离' });
+
+      /* ---------- 3 成：高位只留底仓 ---------- */
+      if (pct > 0 && vr[i] > VP.VR_UP && ratio60 > VP.MA60_HIGH && R[i] > 2.0)
+        cand.push({ pos: CN[3], tag: '3成', note: '高位量增价升（仅留底仓）' });
+
+      /* ---------- 5 成：量缩价升，趋势健康 ---------- */
+      if (vr[i] < VP.VR_WEAK && pct > 0 && ma20[i] != null && c > ma20[i] && !newHigh)
+        cand.push({ pos: CN[5], tag: '5成', note: '量缩价升，趋势健康，半仓持有' });
+
+      /* ---------- 8 成：量增价升，趋势强 ---------- */
+      if (vr[i] > VP.VR_UP && pct > VP.RISE && ma20[i] != null && ma60[i] != null && c > ma20[i] &&
+          ma20[i] > ma60[i] && R[i] > VP.R_MID_LO && R[i] < VP.R_MID_HI && ratio60 <= VP.MA60_HIGH)
+        cand.push({ pos: CN[8], tag: '8成', note: '量增价升且趋势强，加至重仓' });
+    }
+
+    // 《大盘理解》表为决策清单：按 0 → 1 → 2 → 3 → 5 → 8 成顺序，
+    // 首个命中的规则确定基础仓位。全部未命中时按 fallback 口径处理：
+    //   'quadrant'（默认，方案B）：按当日价格方向兜底 —— 涨→5成 / 跌→1成 / 平→沿用前值
+    //   'carry'  （原表口径）    ：一律沿用前一日仓位
+    // 实测背景：原表在真实上证指数上覆盖率仅 16.9%，84.4% 的交易日落在「量平」层（该层零规则），
+    // 原样沿用前值会让融合仓位被长期锁死在 6% 附近。详见页面「口径说明」。
+    let newPos = pos;
+    let current = cand.length ? cand[0] : null;
+    const pctDay = pctAt(i);
+    if (current){
+      newPos = current.pos;
+      if (ready) counters.rule++;
+    } else if (ready && fallback === 'quadrant' && pctDay > 0.3){
+      newPos = CN[5];
+      current = { pos: CN[5], tag: '兜底·价涨', note: '无规则命中，按价格方向兜底至半仓（当涨 > +0.3%）' };
+      counters.fallback++;
+    } else if (ready && fallback === 'quadrant' && pctDay < -0.3){
+      newPos = CN[1];
+      current = { pos: CN[1], tag: '兜底·价跌', note: '无规则命中，按价格方向兜底至轻仓（当跌 < −0.3%）' };
+      counters.fallback++;
+    } else if (ready){
+      counters.carry++;
+    }
+    if (prevPos == null) prevPos = newPos;
+
+    perDay.push({
+      date: rows[i].date, pos: newPos,
+      tags: cand.map(x => x.tag), cands: cand.map(x => ({ tag: x.tag, pos: x.pos })),
+      note: current ? current.note : '无规则命中，沿用前一日仓位 ' + (newPos * 100).toFixed(0) + '%',
+      vr: vr[i], R: R[i], ratio60: ma60[i] ? c / ma60[i] : null, pct: pctDay
+    });
+
+    if (Math.abs(newPos - prevPos) > 1e-9){
+      const up = newPos > prevPos;
+      const tag = current ? current.tag : (up ? '加仓' : '减仓');
+      events.push({
+        date: rows[i].date, action: tag, from: (prevPos * 100).toFixed(0) + '%', to: (newPos * 100).toFixed(0) + '%',
+        price: round2(c), dir: up ? 'buy' : 'sell',
+        note: (current ? current.note : '沿用前一日仓位') + (cand.length > 1 ? '（同日触发：' + cand.map(x => x.tag).join('/') + '）' : '')
+      });
+    }
+    pos = newPos;        // 关键：状态回写，实现「无规则命中则沿用前一日仓位」
+    prevPos = newPos;
+  }
+  return { perDay: perDay, events: events, counters: counters, fallback: fallback };
+}
+
+/* =====================================================================
+ * 策略B-2：量价「网格重写」版（C 变体）
+ * 背景：原表档位表事实是一张「减仓表」——≤20% 档占 90% 的规则命中，
+ *       30%/50% 各仅十几次，80% 全样本 0 次（阈值互斥 + 优先级压制）。
+ *       且 84% 的交易日落在「量平」层（0.8≤VR≤1.3）而该层零规则。
+ * C 放弃原表的「按信号严苛度分层」，改为「位置 × 方向 × 量能」网格，
+ *       覆盖率实测从 16.4% 提升到 80.8%，是量价唯一能独立盈利的形态。
+ * ===================================================================== */
+function computeVolPriceCStrategy(rows, R0){
+  R0 = (R0 == null || !(R0 > 0)) ? BT.DEFAULT_R0 : R0;
+  const n = rows.length;
+  const open = rows.map(r => r.open), close = rows.map(r => r.close);
+  const high = rows.map(r => r.high), low = rows.map(r => r.low), vol = rows.map(r => r.vol);
+  const ma5 = sma(close, 5), ma10 = sma(close, 10), ma20 = sma(close, 20), ma60 = sma(close, 60);
+  const vma20 = sma(vol, 20), vma30 = sma(vol, 30);
+  const amt = close.map((c, i) => c * vol[i]);
+  const amtMa60 = sma(amt, 60);
+  const obv = new Array(n).fill(0);
+  for (let i = 1; i < n; i++){ const d = close[i] - close[i - 1]; obv[i] = obv[i - 1] + (d > 0 ? vol[i] : (d < 0 ? -vol[i] : 0)); }
+  const vr = new Array(n).fill(null), R = new Array(n).fill(null);
+  for (let i = 0; i < n; i++){
+    if (vma20[i] > 0) vr[i] = vol[i] / vma20[i];
+    if (amtMa60[i] > 0) R[i] = amt[i] / amtMa60[i] * R0;
+  }
+  const pctAt = i => (i > 0 && close[i - 1] > 0) ? (close[i] / close[i - 1] - 1) * 100 : 0;
+  const shadowAt = i => close[i] > 0 ? (high[i] - Math.max(open[i], close[i])) / close[i] * 100 : 0;
+  const hi60At = i => i >= VP.LB - 1 ? maxArr(close.slice(i - VP.LB + 1, i + 1)) : null;
+  const lo60At = i => i >= VP.LB - 1 ? minArr(close.slice(i - VP.LB + 1, i + 1)) : null;
+  const prevHighVolAt = i => i >= VP.LB ? maxArr(vol.slice(i - VP.LB, i)) : null;
+  const stallAt = i => ma60[i] != null && vr[i] != null && R[i] != null &&
+    (close[i] / ma60[i]) > VP.MA60_HIGH && vr[i] > VP.VR_STRONG &&
+    (Math.abs(pctAt(i)) < VP.FLAT || shadowAt(i) > VP.SHADOW) && R[i] > VP.R_HIGH;
+  const dryAt = i => vma30[i] != null && R[i] != null && vol[i] < VP.V_DRY * vma30[i] &&
+    (lo60At(i) != null && close[i] <= lo60At(i) * (1 + VP.NEAR60)) && R[i] < VP.R_DRY;
+  const hugeTopAt = j => j >= VP.LB - 1 && vma30[j] != null && R[j] != null &&
+    vol[j] > VP.V_HUGE * vma30[j] && close[j] >= hi60At(j) - 1e-9 && R[j] > VP.R_EXTREME;
+
+  const perDay = [], events = [];
+  const counters = { rule: 0, fallback: 0, carry: 0 };
+  let pos = 0.5, prevPos = null;
+
+  for (let i = 0; i < n; i++){
+    const c = close[i], v = vol[i], pct = pctAt(i);
+    const ready = ma60[i] != null && vma30[i] != null && vr[i] != null && R[i] != null && amtMa60[i] != null;
+    const cand = [];
+    if (ready){
+      const ratio60 = c / ma60[i];
+      const hi60 = hi60At(i), lo60 = lo60At(i);
+      const newHigh = hi60 != null && c >= hi60 - 1e-9;
+      const nearLow = lo60 != null && c <= lo60 * (1 + VP.NEAR60);
+      const sh = shadowAt(i);
+      const above20 = ma20[i] != null && c > ma20[i];
+      const bull = ma20[i] != null && ma60[i] != null && ma20[i] > ma60[i];
+      const belowM5 = ma5[i] != null && c < ma5[i];
+      const belowM5p = ma5[i - 1] != null && close[i - 1] < ma5[i - 1];
+      const div = i > 0 && pct > 0 && v < vol[i - 1];
+      const divp = i > 1 && pctAt(i - 1) > 0 && vol[i - 1] < vol[i - 2];
+      const pv = prevHighVolAt(i);
+      const obvNoHigh = i >= VP.LB && obv[i] <= maxArr(obv.slice(i - VP.LB, i)) + 1e-9;
+
+      /* ---- 防守端（沿用原表的风险识别）---- */
+      if (ratio60 > VP.MA60_HIGH && vr[i] > VP.VR_STRONG && pct < VP.DROP_BIG && belowM5)
+        cand.push({ pos: 0, tag: 'C0·高位量增价跌', note: '高位放量下跌，清仓' });
+      if (stallAt(i) && stallAt(i - 1)) cand.push({ pos: 0, tag: 'C0·高位放量滞涨2日', note: '高位放量滞涨连续2日，清仓' });
+      if (i > 0 && hugeTopAt(i - 1) && (open[i] < close[i - 1] || c < open[i]))
+        cand.push({ pos: 0, tag: 'C0·天量天价次日转弱', note: '天量天价后次日低开/收阴，清仓' });
+      if (dryAt(i)) cand.push({ pos: 0, tag: 'C0·地量地价', note: '地量地价，空仓观望' });
+      if (ratio60 < VP.MA60_LOW && vr[i] < VP.VR_DRY && R[i] < VP.R_DRY) cand.push({ pos: 0, tag: 'C0·低位无量', note: '低位无量，空仓等待' });
+      if ((div && divp) || (belowM5 && ratio60 > VP.MA60_HIGH) || (belowM5 && belowM5p))
+        cand.push({ pos: 0, tag: 'C0·量价背离/破位', note: '量价背离确认或跌破MA5，清仓' });
+      if (pct < -0.3 && !above20 && !bull) cand.push({ pos: 0, tag: 'C0·空头下跌', note: '空头排列中下跌，空仓' });
+      // 1 成
+      if (ratio60 < VP.MA60_LOW && vr[i] > VP.VR_UP && pct < VP.DROP_BIG) cand.push({ pos: VP_LV.v[1], tag: 'C1·低位量增价跌', note: '低位放量下跌首日 → ' + VP_LV.n[1] });
+      if (vr[i] < VP.VR_WEAK && pct < 0 && ma20[i] != null && c < ma20[i]) cand.push({ pos: VP_LV.v[1], tag: 'C1·量缩价跌', note: '量缩跌破20日线 → ' + VP_LV.n[1] });
+      if (stallAt(i)) cand.push({ pos: VP_LV.v[1], tag: 'C1·高位滞涨首日', note: '高位放量滞涨首日 → ' + VP_LV.n[1] });
+      if (i > 0 && dryAt(i - 1) && pct > 0 && v > vma20[i]) cand.push({ pos: VP_LV.v[1], tag: 'C1·地量后放量阳', note: '地量地价后放量阳线 → ' + VP_LV.n[1] });
+      if (pct < -0.3 && !above20) cand.push({ pos: VP_LV.v[1], tag: 'C1·跌破20线', note: '跌破20日线 → ' + VP_LV.n[1] });
+
+      /* ---- 进攻端（C 的网格：位置 × 方向 × 量能）---- */
+      if (ratio60 > VP.MA60_HIGH && pct > 0.3){
+        cand.push({ pos: vr[i] > VP.VR_UP ? VP_LV.v[3] : VP_LV.v[5], tag: 'C·高位价升',
+          note: '高位价升' + (vr[i] > VP.VR_UP ? '且放量 → ' + VP_LV.n[3] : ' → ' + VP_LV.n[5]) });
+      } else if (pct > 0.3){
+        if (above20 && bull){
+          cand.push({ pos: vr[i] > VP.VR_UP ? 1.0 : VP_LV.v[8], tag: 'C·趋势价升',
+            note: '趋势价升（收盘>MA20 且 MA20>MA60）' + (vr[i] > VP.VR_UP ? '且放量 → 满仓' : ' → ' + VP_LV.n[8]) });
+        } else {
+          cand.push({ pos: vr[i] > VP.VR_UP ? VP_LV.v[5] : VP_LV.v[3], tag: 'C·弱趋势价升',
+            note: '弱趋势价升' + (vr[i] > VP.VR_UP ? '且放量 → ' + VP_LV.n[5] : ' → ' + VP_LV.n[3]) });
+        }
+      } else if (Math.abs(pct) <= 0.3){
+        if (ratio60 > VP.MA60_HIGH) cand.push({ pos: VP_LV.v[3], tag: 'C·高位价平', note: '高位滞涨 → ' + VP_LV.n[3] });
+      } else {
+        cand.push({ pos: above20 ? VP_LV.v[3] : VP_LV.v[1], tag: 'C·价跌',
+          note: '价跌' + (above20 ? '但仍在20日线上 → ' + VP_LV.n[3] : '且跌破20日线 → ' + VP_LV.n[1]) });
+      }
+    }
+
+    let newPos = pos;
+    let current = cand.length ? cand[0] : null;
+    if (current){ newPos = current.pos; if (ready) counters.rule++; }
+    else if (ready && pct > 0.3){ newPos = VP_LV.v[5]; current = { pos: VP_LV.v[5], tag: '兜底·价涨', note: '网格未命中，按价格方向兜底至' + VP_LV.n[5] }; counters.fallback++; }
+    else if (ready && pct < -0.3){ newPos = VP_LV.v[1]; current = { pos: VP_LV.v[1], tag: '兜底·价跌', note: '网格未命中，按价格方向兜底至' + VP_LV.n[1] }; counters.fallback++; }
+    else if (ready){ counters.carry++; }
+    if (prevPos == null) prevPos = newPos;
+
+    perDay.push({ date: rows[i].date, pos: newPos, tags: cand.map(x => x.tag),
+      cands: cand.map(x => ({ tag: x.tag, pos: x.pos })),
+      note: current ? current.note : '无规则命中，沿用前一日仓位 ' + (newPos * 100).toFixed(0) + '%',
+      vr: vr[i], R: R[i], ratio60: ma60[i] ? c / ma60[i] : null, pct: pct });
+
+    if (Math.abs(newPos - prevPos) > 1e-9){
+      const up = newPos > prevPos;
+      events.push({ date: rows[i].date, action: current ? current.tag : (up ? '加仓' : '减仓'),
+        from: (prevPos * 100).toFixed(0) + '%', to: (newPos * 100).toFixed(0) + '%',
+        price: round2(c), dir: up ? 'buy' : 'sell', note: current ? current.note : '沿用前一日仓位' });
+    }
+    pos = newPos; prevPos = newPos;
+  }
+  return { perDay: perDay, events: events, counters: counters, fallback: 'quadrant', isC: true };
+}
+
+/* =====================================================================
+ * 策略四：均线粘合清仓（叠加在融合策略之上的一层清仓条件）
+ *   §不是一条独立策略：本函数只输出「这一天是否应该清仓」的信号（clear 字段），
+ *     由 computeFusionStrategy 读入，在融合仓位之上做一票否决；它自身不分配仓位。
+ *   差距百分比 gapPct = |MA5 − MA10| / MA10 × 100%，点数差距 = |MA5 − MA10|
+ *   X = 前 N 个交易日 gapPct 的最小值；Y = 当日 gapPct
+ *   ① Y < FAC × X 且 点数差距 < PT  → 粘合「启动」，并锁定参考值 X0 = X
+ *   ② 之后 gapPct < FAC × X0 且 点数差距 < PT → 粘合「持续」；任一条不满足即结束
+ *   ③ 动作：粘合期间若同时「缩量」（VOL < VRTHIN × MA(VOL,20)）→ 该日 clear = true
+ * ===================================================================== */
+const SQ = { N: 7, FAC: 0.6, PT: 10, VRTHIN: 0.8 };
+
+function computeSqueezeStrategy(rows){
+  const VRTHIN = (FIXED.sqVRTHIN == null) ? SQ.VRTHIN : FIXED.sqVRTHIN;   // 缩量线可由 FIXED 覆盖
+  const FMA = (FIXED.sqFilterMA == null) ? 0 : FIXED.sqFilterMA;          // 位置过滤：需跌破 MA(FMA)
+  const n = rows.length;
+  const close = rows.map(r => r.close), vol = rows.map(r => r.vol);
+  const ma5 = sma(close, 5), ma10 = sma(close, 10), vma20 = sma(vol, 20);
+  const maF = FMA > 0 ? sma(close, FMA) : null;
+  const gapPct = new Array(n).fill(null), gapPt = new Array(n).fill(null);
+  for (let i = 0; i < n; i++){
+    if (ma5[i] != null && ma10[i] != null && ma10[i] > 0){
+      gapPt[i] = Math.abs(ma5[i] - ma10[i]);
+      gapPct[i] = gapPt[i] / ma10[i] * 100;
+    }
+  }
+  const perDay = [], events = [];
+  const counters = { rule: 0, carry: 0, squeeze: 0 };
+  let inSq = false, X0 = null, prev = 1;
+  for (let i = 0; i < n; i++){
+    let squeeze = false;
+    if (gapPct[i] != null && i >= SQ.N + 10){
+      if (!inSq){
+        let X = Infinity;
+        for (let k = i - SQ.N; k < i; k++) if (gapPct[k] != null && gapPct[k] < X) X = gapPct[k];
+        if (isFinite(X) && gapPct[i] < SQ.FAC * X && gapPt[i] < SQ.PT){ inSq = true; X0 = X; }
+      } else if (!(gapPct[i] < SQ.FAC * X0 && gapPt[i] < SQ.PT)){ inSq = false; X0 = null; }
+      squeeze = inSq;
+    }
+    if (squeeze) counters.squeeze++;
+    const thin = vma20[i] != null && vma20[i] > 0 && vol[i] < VRTHIN * vma20[i];
+    const belowF = !maF || (maF[i] != null && close[i] < maF[i]);   // 位置过滤：已跌破 MA(FMA)
+    const clear = squeeze && thin && belowF;
+    const pos = clear ? 0 : 1;
+    if (clear) counters.rule++; else counters.carry++;
+    const note = clear
+      ? '均线粘合且缩量 → 在融合仓位之上清仓（MA5−MA10 仅 ' + gapPt[i].toFixed(1) + ' 点 / ' + gapPct[i].toFixed(3) + '%）'
+      : (squeeze && thin && !belowF ? '均线粘合且缩量，但未跌破 MA' + FMA + '（不清仓）'
+      : (squeeze ? '均线粘合中（未缩量，不清仓）' : '未触发均线粘合'));
+    perDay.push({ date: rows[i].date, pos: pos, squeeze: squeeze, thin: thin, clear: clear,
+      tags: clear ? ['S4·粘合清仓'] : [],
+      note: note, gapPct: gapPct[i], gapPt: gapPt[i], ma5: ma5[i], ma10: ma10[i], price: close[i] });
+    if (Math.abs(pos - prev) > 1e-9){
+      const up = pos > prev;
+      events.push({ date: rows[i].date, action: up ? 'S4 · 解除清仓' : 'S4 · 粘合缩量清仓',
+        from: (prev * 100).toFixed(0) + '%', to: (pos * 100).toFixed(0) + '%',
+        price: round2(close[i]), dir: up ? 'buy' : 'sell', note: note });
+    }
+    prev = pos;
+  }
+  return { perDay: perDay, events: events, counters: counters, isSq: true, filterMA: FMA };
+}
+
+/* =====================================================================
+ * 融合策略（当前固定为 blendC；其余历史口径保留在代码中备查）：
+ *   'blendC'       仓位 = 均线×w + 量价×(1−w)；任一条空仓 → 清仓    【FIXED.fuseMode，默认】
+ *   'brake'        量价只做刹车：量价空仓 → 0；其余按权重 w 混合
+ *   'min'          仓位 = min(均线仓位, 量价仓位)（取两者较低）
+ *   'maOverride'   均线重仓(100%)时抬至 100%；但量价空仓仍清仓
+ *   'maOverrideRaw'均线重仓(100%)时无条件抬至 100%
+ */
+
+const FUSION_MODES = {
+  min:           '原文 min（量价是天花板）',
+  maOverride:    '均线重仓豁免（量价仍可否决）',
+  maOverrideRaw: '均线重仓无条件豁免',
+  brake:         '量价仅做刹车（一票否决）',
+  blendC:        '加权混合 + 空仓否决（当前采用）'
+};
+
+function computeFusionStrategy(maStrat, vpStrat, mode, w, sqStrat){
+  mode = FUSION_MODES[mode] ? mode : 'blendC';
+  w = (w == null || !isFinite(w)) ? FIXED.fuseW : Math.max(0, Math.min(1, w));   // 均线权重
+  const mapVp = {};
+  vpStrat.perDay.forEach(d => { mapVp[d.date] = d.pos; });
+  const mapSq = {};
+  if (sqStrat) sqStrat.perDay.forEach(d => { mapSq[d.date] = d.pos; });
+  const perDay = [], events = [];
+  const ZERO = 1e-9;
+  let prev = null;
+
+  maStrat.perDay.forEach(d => {
+    const vpPos = mapVp[d.date] != null ? mapVp[d.date] : 0.5;   // 量价策略仓位
+    const sqPos = mapSq[d.date] != null ? mapSq[d.date] : 1;     // 均线粘合仓位（0=清仓 / 1=满仓）
+    const sqOn = !!sqStrat && FIXED.squeezeVeto !== false;
+    const vpZero = vpPos <= ZERO;
+    const maZero = d.pos <= ZERO;
+    const sqZero = sqOn && sqPos <= ZERO;
+    const maHeavy = d.pos >= 1 - ZERO;
+    let pos, binding, rule;
+
+    if (mode === 'blendC'){
+      // 融合 = 两条策略的加权平均；任一条喊空仓则最终清仓
+      const veto = (FIXED.vetoMode === 'c') ? (vpZero || sqZero) : (maZero || vpZero || sqZero);
+      if (veto){
+        pos = 0; binding = '否决';
+        rule = sqZero ? '均线粘合且缩量 → 清仓'
+             : (maZero && vpZero ? '两条策略都空仓 → 清仓'
+             : (maZero ? '均线策略空仓 → 清仓' : '量价策略空仓 → 清仓'));
+      } else if (Math.abs(w - 1) < ZERO){ pos = d.pos; binding = '均线'; rule = '纯跟随均线 ' + (d.pos * 100).toFixed(0) + '%'; }
+      else if (w < ZERO){ pos = vpPos; binding = '量价'; rule = '纯跟随量价 ' + (vpPos * 100).toFixed(0) + '%'; }
+      else {
+        pos = w * d.pos + (1 - w) * vpPos;
+        binding = '混合';
+        rule = '均线 ' + (d.pos * 100).toFixed(0) + '% × ' + w.toFixed(2) + '　+　量价 ' + (vpPos * 100).toFixed(0) + '% × ' + (1 - w).toFixed(2);
+      }
+    } else if (mode === 'brake'){
+      if (vpZero){ pos = 0; binding = '否决'; rule = '量价策略空仓 → 清仓'; }
+      else {
+        pos = w * d.pos + (1 - w) * vpPos;
+        binding = (1 - w) < ZERO ? '均线' : (w < ZERO ? '量价' : '混合');
+        rule = '均线 ' + (d.pos * 100).toFixed(0) + '% × ' + w.toFixed(2) + '　+　量价 ' + (vpPos * 100).toFixed(0) + '% × ' + (1 - w).toFixed(2);
+      }
+    } else if (mode === 'maOverride'){
+      if (vpZero){ pos = 0; binding = '否决'; rule = '量价策略空仓 → 清仓'; }
+      else if (maHeavy){ pos = 1; binding = '均线'; rule = '均线重仓 → 抬至 100%'; }
+      else { pos = Math.min(d.pos, vpPos); binding = d.pos <= vpPos ? '均线' : '量价'; rule = '取两者较低：min(' + (d.pos * 100).toFixed(0) + '%, ' + (vpPos * 100).toFixed(0) + '%)'; }
+    } else if (mode === 'maOverrideRaw'){
+      if (maHeavy){ pos = 1; binding = '均线'; rule = '均线重仓 → 无条件抬至 100%'; }
+      else { pos = Math.min(d.pos, vpPos); binding = d.pos <= vpPos ? '均线' : '量价'; rule = '取两者较低：min(' + (d.pos * 100).toFixed(0) + '%, ' + (vpPos * 100).toFixed(0) + '%)'; }
+    } else {
+      pos = Math.min(d.pos, vpPos);
+      binding = d.pos <= vpPos ? '均线' : '量价';
+      rule = '取两者较低：min(' + (d.pos * 100).toFixed(0) + '%, ' + (vpPos * 100).toFixed(0) + '%)';
+    }
+
+    const note = '融合　' + rule + '　→　' + (pos * 100).toFixed(0) + '%';
+    perDay.push({ date: d.date, pos: pos, maPos: d.pos, vpPos: vpPos, binding: binding, state: d.state,
+      sqZero: sqZero, tags: [binding + '主导'], note: note });
+    if (prev != null && Math.abs(pos - prev) > 1e-9){
+      const act = pos > prev ? '加仓' : (sqZero ? '策略四清仓' : '减仓');
+      events.push({
+        date: d.date, action: act,
+        from: (prev * 100).toFixed(0) + '%', to: (pos * 100).toFixed(0) + '%',
+        price: round2(d.price), dir: pos > prev ? 'buy' : 'sell',
+        note: note
+      });
+    }
+    prev = pos;
+  });
+  return { perDay: perDay, events: events, mode: mode };
+}
+
+/* =====================================================================
+ * 回测引擎：把锚定指数的仓位序列套用到输入股票（次日生效）
+ * ===================================================================== */
+function computeBacktest(stockRows, anchorPerDay, posFn){
+  const stDates = anchorPerDay.map(d => d.date);
+  let idxPtr = 0;
+  let pos = 0, prevPos = null, avgCost = null, equity = 1;
+  const eq = [], posCurve = [], trades = [];
+
+  for (let i = 0; i < stockRows.length; i++){
+    const r = stockRows[i];
+    while (idxPtr + 1 < stDates.length && stDates[idxPtr + 1] < r.date) idxPtr++;
+    const entry = anchorPerDay[idxPtr] || null;
+    const newPos = entry ? posFn(entry) : 0;
+
+    if (i > 0){
+      const ret = r.close / stockRows[i - 1].close - 1;
+      equity *= (1 + pos * ret);
+    }
+    eq.push(equity); posCurve.push(pos);
+
+    if (prevPos != null && Math.abs(newPos - pos) > 1e-9){
+      const dir = newPos > pos ? 'buy' : 'sell';
+      const t = {
+        date: r.date, dir: dir, action: dir === 'buy' ? '买入' : '卖出',
+        price: r.close, pctFrom: pos * 100, pctTo: newPos * 100,
+        signal: entry && entry.tags && entry.tags.length ? entry.tags[0] : '-',
+        note: entry && entry.note ? entry.note
+              : (entry && entry.state ? ('均线状态 ' + entry.state + ' · ' + BT.STATE_NAME[entry.state]) : ''),
+        realized: null
+      };
+      trades.push(t);
+      if (dir === 'buy'){
+        const delta = newPos - pos;
+        avgCost = avgCost == null ? r.close : (avgCost * pos + r.close * delta) / newPos;
+      } else if (avgCost != null){
+        t.realized = (r.close / avgCost - 1) * 100;
+        if (newPos === 0) avgCost = null;
+      }
+    }
+    pos = newPos; prevPos = newPos;
+  }
+  return { eq: eq, posCurve: posCurve, trades: trades };
+}
+
+/* =====================================================================
+ * 区间汇总与统计
+ * ===================================================================== */
+function summarize(stockRows, bt, winStart, winEnd){
+  const dates = stockRows.map(r => r.date);
+  let i0 = dates.findIndex(d => d >= winStart);
+  let i1 = dates.length - 1;
+  while (i1 >= 0 && dates[i1] > winEnd) i1--;
+  if (i0 < 0) i0 = 0;
+  if (i1 < i0) return null;
+
+  const base = bt.eq[i0];
+  const eqN = bt.eq.slice(i0, i1 + 1).map(e => e / base);
+  const closesW = stockRows.slice(i0, i1 + 1).map(r => r.close);
+  const bhN = closesW.map(c => c / closesW[0]);
+  const posW = bt.posCurve.slice(i0, i1 + 1);
+
+  // 净值序列 → 日收益
+  const eqFull = bt.eq.slice(i0, i1 + 1);
+  const rets = [];
+  for (let k = 1; k < eqFull.length; k++) rets.push(eqFull[k] / eqFull[k - 1] - 1);
+  const volAnnual = std(rets) * Math.sqrt(252);
+  const sharpe = volAnnual > 0 ? (mean(rets) * 252) / volAnnual : 0;
+
+  const tradesW = bt.trades.filter(t => t.date >= winStart && t.date <= winEnd);
+  const sells = tradesW.filter(t => t.dir === 'sell' && t.realized != null);
+  const wins = sells.filter(t => t.realized > 0).length;
+
+  const ret = eqN[eqN.length - 1] - 1;
+  const bhRet = bhN[bhN.length - 1] - 1;
+  const mdd = maxDrawdown(eqN);
+
+  return {
+    dates: dates.slice(i0, i1 + 1),
+    eqN: eqN, bhN: bhN, posCurve: posW,
+    trades: tradesW,
+    ret: ret, bhRet: bhRet, excess: ret - bhRet,
+    mdd: mdd, bhMdd: maxDrawdown(bhN),
+    volAnnual: volAnnual, sharpe: sharpe,
+    calmar: mdd !== 0 ? ret / Math.abs(mdd) : 0,
+    tradeCount: tradesW.length, winRate: sells.length ? wins / sells.length : null,
+    avgPos: mean(posW), lastPos: posW[posW.length - 1],
+    firstDate: dates[i0], lastDate: dates[i1]
+  };
+}
+
+/* =====================================================================
+ * 渲染：对比总览表
+ * ===================================================================== */
+function renderCompare(S){
+  const rows = [
+    { k: '区间收益', v: S.map(s => s.ret), f: 'pct', better: 'high' },
+    { k: '超额收益（vs 买入持有）', v: S.map(s => s.excess), f: 'pct', better: 'high' },
+    { k: '最大回撤', v: S.map(s => s.mdd), f: 'pct', better: 'low' },
+    { k: '收益回撤比（Calmar）', v: S.map(s => s.calmar), f: 'num', better: 'high' },
+    { k: '年化波动率', v: S.map(s => s.volAnnual), f: 'pct', better: 'low' },
+    { k: '夏普比率（近似，rf=0）', v: S.map(s => s.sharpe), f: 'num', better: 'high' },
+    { k: '交易次数', v: S.map(s => s.tradeCount), f: 'int', better: 'low' },
+    { k: '卖出胜率', v: S.map(s => s.winRate), f: 'pct0', better: 'high' },
+    { k: '平均仓位', v: S.map(s => s.avgPos), f: 'pct0', better: null },
+    { k: '空仓天数占比', v: S.map(s => s.posCurve.filter(p => p < 1e-9).length / s.posCurve.length), f: 'pct0', better: null },
+    { k: '重仓天数占比(≥80%)', v: S.map(s => s.posCurve.filter(p => p >= 0.8 - 1e-9).length / s.posCurve.length), f: 'pct0', better: null },
+    { k: '期末仓位', v: S.map(s => s.lastPos), f: 'pct0', better: null }
+  ];
+  const fmt = (x, f) => {
+    if (x == null) return '—';
+    if (f === 'pct')  return fmtPct(x);
+    if (f === 'pct0') return (x * 100).toFixed(0) + '%';
+    if (f === 'int')  return String(x);
+    return x.toFixed(2);
+  };
+  // 参与「最优值」比较的列：均线(0) / 量价(1) / 融合(2) / 买入持有(3)
+  const RANK = [0, 1, 2, 3];
+  const body = rows.map(r => {
+    let best = -1;
+    if (r.better){
+      let bv = null, ties = 0;
+      RANK.forEach(i => {
+        const x = r.v[i];
+        if (x == null) return;
+        if (bv == null || (r.better === 'high' ? x > bv : x < bv)){ bv = x; best = i; ties = 1; }
+        else if (Math.abs(x - bv) < 1e-9) ties++;
+      });
+      if (ties > 1) best = -1;   // 并列时不标注
+    }
+    const tds = r.v.map((x, i) => {
+      const cls = r.f === 'pct' || r.f === 'pct0' ? (x >= 0 ? 'pos' : 'neg') : '';
+      const win = (i === best) ? ' win' : '';
+      return '<td class="' + cls + win + '">' + fmt(x, r.f) + '</td>';
+    }).join('');
+    return '<tr><td class="c-name">' + r.k + '</td>' + tds + '</tr>';
+  }).join('');
+  document.querySelector('#tblCmp tbody').innerHTML = body;
+
+  document.getElementById('cmpSub').textContent =
+    S[0].firstDate + ' ~ ' + S[0].lastDate + ' · 共 ' + S[0].dates.length + ' 个交易日 · 各策略仓位分别套用同一标的' +
+    (FIXED.squeezeVeto !== false ? ' · 融合策略已叠加策略四（均线粘合缩量清仓）' : '');
+
+  // 结论行（三条策略相比；买入持有只作基准，不参与评选）
+  const names = ['均线策略', '量价策略', '融合策略'];
+  const CMP = [0, 1, 2];
+  const pick = (key, dir) => {
+    let b = CMP[0];
+    CMP.forEach(i => { const x = S[i][key]; if (x == null) return; if (dir === 'high' ? x > S[b][key] : x < S[b][key]) b = i; });
+    return b;
+  };
+  const bestRet = pick('ret', 'high');
+  const bestCalmarIdx = pick('calmar', 'high');
+  const worstDD = pick('mdd', 'high');
+  document.getElementById('cmpVerdict').innerHTML =
+    '<b>结论：</b>本区间 <b>' + names[bestRet] + '</b> 区间收益最高（' + fmtPct(S[bestRet].ret) + '）；' +
+    '<b>' + names[bestCalmarIdx] + '</b> 单位回撤收益最优（Calmar ' + S[bestCalmarIdx].calmar.toFixed(2) + '）；' +
+    '<b>' + names[worstDD] + '</b> 回撤控制最好（' + fmtPct(S[worstDD].mdd) + '）。' +
+    '买入持有基准收益 ' + fmtPct(S[3].ret) + '，最大回撤 ' + fmtPct(S[3].mdd) + '。';
+}
+
+// ===== 渲染：量价策略覆盖诊断 =====
+function renderCoverage(vpStrat, fuseMode, fuseWv){
+  const c = vpStrat.counters || { rule: 0, fallback: 0, carry: 0 };
+  const tot = c.rule + c.fallback + c.carry || 1;
+  const pct = x => (x / tot * 100).toFixed(1) + '%';
+  const wv = (fuseWv == null ? FIXED.fuseW : fuseWv);
+  document.getElementById('cmpCoverage').innerHTML =
+    '<b>量价策略覆盖诊断</b>：规则直接命中 <b>' + pct(c.rule) + '</b> ／ 空档沿用前一日仓位 <b>' +
+    pct(c.fallback + c.carry) + '</b>（共 ' + tot + ' 个指标就绪交易日）。' +
+    '<span style="color:#b45309">　⚠ 该策略未通过滚动稳定性与择时技能检验，详见页面底部「策略逻辑与口径说明」。</span>';
+  if (fuseMode && document.getElementById('posSub')){
+    document.getElementById('posSub').textContent = '融合口径：' + (FUSION_MODES[fuseMode] || fuseMode) +
+      '（均线 × ' + wv.toFixed(2) + ' + 量价 × ' + (1 - wv).toFixed(2) + '）；阶梯线为次日生效后的实际持仓';
+  }
+}
+
+/* =====================================================================
+ * 渲染：统计小卡片（每策略一张收益卡）
+ * ===================================================================== */
+function renderStats(S){
+  const el = document.getElementById('stats');
+  const cards = [];
+  const nameMap = ['均线策略', '量价策略', '融合策略'];
+  for (let i = 0; i < 3; i++){
+    const s = S[i];
+    cards.push({ k: nameMap[i] + ' · 区间收益', v: fmtPct(s.ret), cls: s.ret >= 0 ? 'pos' : 'neg',
+      s: '回撤 ' + fmtPct(s.mdd) + ' · 交易 ' + s.tradeCount + ' 次' });
+  }
+  cards.push({ k: '买入持有 · 区间收益', v: fmtPct(S[3].ret), cls: S[3].ret >= 0 ? 'pos' : 'neg',
+    s: '回撤 ' + fmtPct(S[3].mdd) + ' · 基准' });
+  el.innerHTML = cards.map(c =>
+    '<div class="stat"><div class="k">' + c.k + '</div><div class="v ' + c.cls + '">' + c.v + '</div><div class="s">' + c.s + '</div></div>'
+  ).join('');
+}
+
+/* =====================================================================
+ * 渲染：K线 + 均线 + 买卖标记
+ * ===================================================================== */
+function priceChart(domId, rows, buys, sells, opt){
+  opt = opt || {};
+  const dates = rows.map(r => r.date);
+  const closes = rows.map(r => r.close);
+  const ma5 = sma(closes, 5), ma10 = sma(closes, 10), ma20 = sma(closes, 20);
+  let chart = opt.chart;
+  if (!chart){ chart = echarts.init(document.getElementById(domId)); _charts.push(chart); }
+  const series = [
+    { name: 'K线', type: 'candlestick', data: rows.map(r => [r.open, r.close, r.low, r.high]),
+      itemStyle: { color: '#e0434b', color0: '#14a37f', borderColor: '#e0434b', borderColor0: '#14a37f' } },
+    { name: 'MA5', type: 'line', data: ma5, showSymbol: false, smooth: true, lineStyle: { width: 1.2, color: '#f5a623' } },
+    { name: 'MA10', type: 'line', data: ma10, showSymbol: false, smooth: true, lineStyle: { width: 1.2, color: '#3b82f6' } },
+    { name: 'MA20', type: 'line', data: ma20, showSymbol: false, smooth: true, lineStyle: { width: 1.2, color: '#8b5cf6' } }
+  ];
+  if (buys && buys.length) series.push({ name: '买入', type: 'scatter', data: buys.map(b => [b.date, b.price]), symbol: 'triangle', symbolSize: 12, itemStyle: { color: '#e0434b' }, z: 20 });
+  if (sells && sells.length) series.push({ name: '卖出', type: 'scatter', data: sells.map(sd => [sd.date, sd.price]), symbol: 'triangle', symbolRotate: 180, symbolSize: 12, itemStyle: { color: '#14a37f' }, z: 20 });
+  chart.setOption({
+    animation: false, backgroundColor: 'transparent',
+    legend: { top: 0, textStyle: { color: '#6b7280', fontSize: 11 } },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, valueFormatter: v => (v == null ? '-' : round2(v).toFixed(2)) },
+    grid: { left: 8, right: 14, top: 30, bottom: 46, containLabel: true },
+    xAxis: { type: 'category', data: dates, boundaryGap: true, axisLine: { lineStyle: { color: '#e5e7eb' } }, axisLabel: { color: '#9ca3af', fontSize: 10 } },
+    yAxis: { scale: true, axisLabel: { color: '#9ca3af', fontSize: 10 } },
+    dataZoom: [
+      { type: 'inside', start: opt.zoomStart != null ? opt.zoomStart : 0, end: 100 },
+      { type: 'slider', height: 16, bottom: 6, borderColor: '#e5e7eb', textStyle: { fontSize: 9, color: '#9ca3af' } }
+    ],
+    series: series
+  }, true);
+  return chart;
+}
+
+/* =====================================================================
+ * 渲染：净值对比 / 回撤对比 / 仓位对比
+ * ===================================================================== */
+function renderEqChart(S){
+  const chart = echarts.init(document.getElementById('chartEq'));
+  const dates = S[0].dates;
+  chart.setOption({
+    animation: false,
+    tooltip: { trigger: 'axis', valueFormatter: v => (v == null ? '-' : v.toFixed(3)) },
+    legend: { top: 0, textStyle: { color: '#6b7280', fontSize: 11 } },
+    grid: { left: 8, right: 14, top: 30, bottom: 24, containLabel: true },
+    xAxis: { type: 'category', data: dates, boundaryGap: false, axisLine: { lineStyle: { color: '#e5e7eb' } }, axisLabel: { color: '#9ca3af', fontSize: 10 } },
+    yAxis: { type: 'value', scale: true, axisLabel: { color: '#9ca3af', fontSize: 10, formatter: v => v.toFixed(2) } },
+    series: [
+      { name: '均线策略', type: 'line', data: S[0].eqN.map(v => round2(v)), showSymbol: false, smooth: true, lineStyle: { width: 2, color: BT.COLOR.ma }, itemStyle: { color: BT.COLOR.ma } },
+      { name: '量价策略', type: 'line', data: S[1].eqN.map(v => round2(v)), showSymbol: false, smooth: true, lineStyle: { width: 2, color: BT.COLOR.vp }, itemStyle: { color: BT.COLOR.vp } },
+      { name: '融合策略', type: 'line', data: S[2].eqN.map(v => round2(v)), showSymbol: false, smooth: true, lineStyle: { width: 2.4, color: BT.COLOR.fu }, itemStyle: { color: BT.COLOR.fu } },
+      { name: '买入持有', type: 'line', data: S[3].eqN.map(v => round2(v)), showSymbol: false, smooth: true, lineStyle: { width: 1.6, color: BT.COLOR.bh, type: 'dashed' }, itemStyle: { color: BT.COLOR.bh } },
+      { name: '基准线', type: 'line', data: dates.map(() => 1), showSymbol: false, lineStyle: { width: 1, color: '#d1d5db' }, silent: true, tooltip: { show: false } }
+    ]
+  });
+  _charts.push(chart);
+}
+
+function renderDDChart(S){
+  const chart = echarts.init(document.getElementById('chartDD'));
+  const dates = S[0].dates;
+  const under = eq => { let peak = -Infinity; return eq.map(v => { peak = Math.max(peak, v); return round2((v / peak - 1) * 100); }); };
+  chart.setOption({
+    animation: false,
+    tooltip: { trigger: 'axis', valueFormatter: v => (v == null ? '-' : v.toFixed(2) + '%') },
+    legend: { top: 0, textStyle: { color: '#6b7280', fontSize: 11 } },
+    grid: { left: 8, right: 14, top: 30, bottom: 24, containLabel: true },
+    xAxis: { type: 'category', data: dates, boundaryGap: false, axisLine: { lineStyle: { color: '#e5e7eb' } }, axisLabel: { color: '#9ca3af', fontSize: 10 } },
+    yAxis: { type: 'value', max: 0, axisLabel: { color: '#9ca3af', fontSize: 10, formatter: '{value}%' } },
+    series: [
+      { name: '均线策略', type: 'line', data: under(S[0].eqN), showSymbol: false, lineStyle: { width: 1.6, color: BT.COLOR.ma }, itemStyle: { color: BT.COLOR.ma } },
+      { name: '量价策略', type: 'line', data: under(S[1].eqN), showSymbol: false, lineStyle: { width: 1.6, color: BT.COLOR.vp }, itemStyle: { color: BT.COLOR.vp } },
+      { name: '融合策略', type: 'line', data: under(S[2].eqN), showSymbol: false, lineStyle: { width: 2, color: BT.COLOR.fu }, itemStyle: { color: BT.COLOR.fu } },
+      { name: '买入持有', type: 'line', data: under(S[3].eqN), showSymbol: false, lineStyle: { width: 1.4, color: BT.COLOR.bh, type: 'dashed' }, itemStyle: { color: BT.COLOR.bh } }
+    ]
+  });
+  _charts.push(chart);
+}
+
+function renderPosChart(S){
+  const chart = echarts.init(document.getElementById('chartPos'));
+  const dates = S[0].dates;
+  const step = { name: '', type: 'line', step: 'end', showSymbol: false };
+  chart.setOption({
+    animation: false,
+    tooltip: { trigger: 'axis', formatter: p => {
+      const i = p[0].dataIndex;
+      return dates[i] + '<br/>' + p.map(x => x.marker + ' ' + x.seriesName + '：' + x.value.toFixed(0) + '%').join('<br/>');
+    } },
+    legend: { top: 0, textStyle: { color: '#6b7280', fontSize: 11 } },
+    grid: { left: 8, right: 14, top: 30, bottom: 24, containLabel: true },
+    xAxis: { type: 'category', data: dates, boundaryGap: false, axisLine: { lineStyle: { color: '#e5e7eb' } }, axisLabel: { color: '#9ca3af', fontSize: 10 } },
+    yAxis: { type: 'value', min: 0, max: 100, interval: 25, axisLabel: { color: '#9ca3af', fontSize: 10, formatter: '{value}%' } },
+    series: [
+      Object.assign({}, step, { name: '均线策略', data: S[0].posCurve.map(p => round2(p * 100)), lineStyle: { width: 1.6, color: BT.COLOR.ma } }),
+      Object.assign({}, step, { name: '量价策略', data: S[1].posCurve.map(p => round2(p * 100)), lineStyle: { width: 1.6, color: BT.COLOR.vp } }),
+      Object.assign({}, step, { name: '融合策略', data: S[2].posCurve.map(p => round2(p * 100)), lineStyle: { width: 2.4, color: BT.COLOR.fu } })
+    ]
+  });
+  _charts.push(chart);
+}
+
+/* =====================================================================
+ * 渲染：信号明细 / 成交明细（含策略列）
+ * ===================================================================== */
+function renderTables(maStrat, vpStrat, fuStrat, S){
+  const first = S[0].firstDate, last = S[0].lastDate;
+  const mk = (arr, name, cls, dirFn) => arr
+    .filter(e => e.date >= first && e.date <= last)
+    .map(e => ({ date: e.date, strat: name, cls: cls, action: e.action, from: e.from, to: e.to, price: e.price, note: e.note, dir: dirFn ? dirFn(e) : null }));
+
+  const all = []
+    .concat(mk(maStrat.events, '均线', 'ma', e => /^B/.test(e.action) ? 'buy' : 'sell'))
+    .concat(mk(vpStrat.events, '量价', 'vp', e => e.dir))
+    .concat(mk(fuStrat.events, '融合', 'fu', e => e.dir))
+    .sort((a, b) => a.date < b.date ? -1 : (a.date > b.date ? 1 : 0));
+
+  // 长区间（如 10 年）信号可达千条，全量渲染既慢又难读 → 只列最近若干条
+  const EV_LIMIT = 600, TR_LIMIT = 400;
+  const evShow = all.length > EV_LIMIT ? all.slice(all.length - EV_LIMIT) : all;
+  const evNoteEl = document.getElementById('evNote');
+  if (evNoteEl) evNoteEl.innerHTML = all.length > EV_LIMIT
+    ? '窗口内共 <b>' + all.length + '</b> 条信号，下表<b>只列出最近 ' + EV_LIMIT + ' 条</b>；完整序列已用于所有绩效计算，不受显示条数影响。' : '';
+  document.querySelector('#tblEvents tbody').innerHTML = evShow.map(e =>
+    '<tr><td>' + e.date + '</td>' +
+    '<td><span class="badge ' + e.cls + '">' + e.strat + '</span></td>' +
+    '<td>' + e.action + '</td><td>' + e.from + ' → ' + e.to + '</td>' +
+    '<td>' + e.price.toFixed(2) + '</td>' +
+    '<td style="text-align:left">' + e.note + '</td></tr>'
+  ).join('') || '<tr><td colspan="6" style="text-align:center;color:#9ca3af">窗口内无择时信号</td></tr>';
+
+  const tradeRows = []
+    .concat(S[0].trades.map(t => ({ t: t, name: '均线', cls: 'ma' })))
+    .concat(S[1].trades.map(t => ({ t: t, name: '量价', cls: 'vp' })))
+    .concat(S[2].trades.map(t => ({ t: t, name: '融合', cls: 'fu' })))
+    .sort((a, b) => a.t.date < b.t.date ? -1 : (a.t.date > b.t.date ? 1 : 0));
+
+  const trShow = tradeRows.length > TR_LIMIT ? tradeRows.slice(tradeRows.length - TR_LIMIT) : tradeRows;
+  const trNoteEl = document.getElementById('tradeNote');
+  if (trNoteEl) trNoteEl.innerHTML = tradeRows.length > TR_LIMIT
+    ? '窗口内共 <b>' + tradeRows.length + '</b> 笔成交，下表<b>只列出最近 ' + TR_LIMIT + ' 笔</b>；完整序列已用于所有绩效计算，不受显示条数影响。' : '';
+  document.querySelector('#tblTrades tbody').innerHTML = trShow.map(r => {
+    const t = r.t;
+    const cls = t.dir === 'buy' ? 'up' : 'down';
+    const realized = t.realized == null ? '—' : '<span class="' + (t.realized >= 0 ? 'pos' : 'neg') + '">' + fmtPct(t.realized / 100) + '</span>';
+    return '<tr><td>' + t.date + '</td>' +
+      '<td><span class="badge ' + r.cls + '">' + r.name + '</span></td>' +
+      '<td><span class="badge ' + (t.dir === 'buy' ? 'buy' : 'sell') + '">' + t.action + '</span></td>' +
+      '<td><span class="badge sig">' + t.signal + '</span></td>' +
+      '<td class="' + cls + '">' + t.price.toFixed(2) + '</td>' +
+      '<td>' + t.pctFrom.toFixed(0) + '% → ' + t.pctTo.toFixed(0) + '%</td>' +
+      '<td>' + realized + '</td>' +
+      '<td style="text-align:left">' + t.note + '</td></tr>';
+  }).join('') || '<tr><td colspan="8" style="text-align:center;color:#9ca3af">窗口内无成交</td></tr>';
+}
+
+/* =====================================================================
+ * 主流程
+ * ===================================================================== */
+let _cache = null;   // 供股票K线图策略切换复用
+let _stockChart = null;
+
+async function runBacktest(){
+  const codeInput = document.getElementById('code').value;
+  const stockSym = normalizeCode(codeInput);
+  const anchorSym = document.getElementById('anchor').value;
+  const winStart = document.getElementById('start').value;
+  const winEnd = document.getElementById('end').value;
+  // 固定口径（面板不再暴露这些旋钮，取值已固化在 FIXED 中）
+  const R0 = FIXED.R0;
+  const fuseMode = FIXED.fuseMode;
+  const fuseWv = FIXED.fuseW;
+  const banner = document.getElementById('banner');
+  banner.className = 'banner';
+  if (!stockSym){ banner.className = 'banner show'; banner.innerHTML = '请输入有效的股票代码，如 600519、000001、300750 或 sh600519。'; return; }
+  if (!winStart || !winEnd || winStart > winEnd){ banner.className = 'banner show'; banner.innerHTML = '回测区间不合法，请检查开始/结束日期。'; return; }
+
+  const runBtn = document.getElementById('run');
+  const loading = document.getElementById('loading');
+  const loadingText = document.getElementById('loadingText');
+  runBtn.disabled = true;
+  loading.className = 'loading show';
+  loadingText.textContent = '正在从本地库取数…';
+
+  const fetchStart = daysBefore(winStart, 620);   // 留足 MA60 / MA(VOL,30) / 60日高低点 / 成交额MA60 预热
+  try {
+    const anchorLabel = IDX_NAME[anchorSym] || anchorSym.toUpperCase();
+    loadingText.textContent = '正在取 ' + anchorLabel + ' 择时数据（本地库优先）…';
+    const anchor = await fetchKline(anchorSym, fetchStart, winEnd, { fq: false });
+    loadingText.textContent = '正在取 ' + stockSym.toUpperCase() + ' 行情（本地库优先）…';
+    const stock = await fetchKline(stockSym, fetchStart, winEnd, { fq: 'hfq' });
+    if (anchor.length < 90 || stock.length < 30) throw new Error('行情数据不足（锚定指数需 ≥90 个交易日，标的需 ≥30 个交易日）');
+
+    // 覆盖度校验：行情源对单次返回根数有上限（腾讯 2000 / 新浪 1023），长区间可能被静默截断。
+    // 截断不会报错，只会让「回测区间」悄悄变短，所以必须显式提示。
+    const warmNeed = daysBefore(winStart, 100);   // 至少留 100 个自然日预热（策略最长回看 60 日）
+    const notices = [];
+    [[(IDX_NAME[anchorSym] || anchorSym.toUpperCase()) + '（择时锚定）', anchor],
+     [stockSym.toUpperCase() + '（交易标的）', stock]].forEach(pair => {
+      const nm = pair[0], rows = pair[1];
+      const f = rows[0].date, l = rows[rows.length - 1].date;
+      if (f > winStart){
+        notices.push('<b>' + nm + '</b> 行情只回溯到 <b>' + f + '</b>，早于该日无数据，' +
+          '<b>本次实际回测区间被截断为 ' + f + ' ~ ' + l + '</b>。');
+      } else if (f > warmNeed){
+        notices.push('<b>' + nm + '</b> 行情回溯到 <b>' + f + '</b>，距区间起点不足约 100 个自然日，' +
+          '<b>区间前段的均线 / 量价指标预热不足</b>，开头几周的信号可能失真。');
+      }
+    });
+    const stockFq = stock.fq == null ? '' : stock.fq;
+    if (stockFq !== 'hfq'){
+      notices.push('<b>交易标的</b>行情口径为 <b>' + (FQ_NAME[stockFq] || stockFq) + '</b>（目标为后复权）：' +
+        '腾讯源的复权序列在该窗口长度下会失真时自动降级。不同口径的收益率含分红处理差异，不可与其他口径的结论直接比较。');
+    }
+    const noteEl = document.getElementById('dataNote');
+    if (notices.length){
+      noteEl.className = 'banner warn show';
+      noteEl.innerHTML = '⚠ <b>数据覆盖度提示</b>：' + notices.join('<br>');
+    } else {
+      noteEl.className = 'banner warn';
+      noteEl.innerHTML = '';
+    }
+
+    loadingText.textContent = '正在计算各策略与净值…';
+    await new Promise(r => setTimeout(r, 30));
+
+    const maStrat = computeMaStrategy(anchor);
+    // 量价策略 = 4 档网格（页面显示的就是融合内部真正使用的那条曲线）
+    const vpStrat = computeVolPriceCStrategy(anchor, R0);
+    // 策略四「均线粘合」不是一条独立策略，而是叠加在融合之上的清仓条件
+    const sqStrat = computeSqueezeStrategy(anchor);
+    const fuStrat = computeFusionStrategy(maStrat, vpStrat, fuseMode, fuseWv, sqStrat);
+
+    const btMa = computeBacktest(stock, maStrat.perDay, e => e.pos);
+    const btVp = computeBacktest(stock, vpStrat.perDay, e => e.pos);
+    const btFu = computeBacktest(stock, fuStrat.perDay, e => e.pos);
+
+    const sMa = summarize(stock, btMa, winStart, winEnd);
+    const sVp = summarize(stock, btVp, winStart, winEnd);
+    const sFu = summarize(stock, btFu, winStart, winEnd);
+    if (!sMa || !sVp || !sFu) throw new Error('回测区间内无交易数据，请调整日期范围');
+    const sBh = { eqN: sMa.bhN, mdd: sMa.bhMdd, ret: sMa.bhRet, excess: 0,
+      volAnnual: 0, sharpe: 0, calmar: 0, tradeCount: 0, winRate: null, avgPos: 1, lastPos: 1,
+      dates: sMa.dates, posCurve: sMa.dates.map(() => 1), trades: [],
+      firstDate: sMa.firstDate, lastDate: sMa.lastDate };
+    // 买入持有基准的波动率/夏普与三策略同口径（日收益算术平均 / 年化标准差）
+    const bhRets = [];
+    for (let k = 1; k < sBh.eqN.length; k++) bhRets.push(sBh.eqN[k] / sBh.eqN[k - 1] - 1);
+    sBh.volAnnual = std(bhRets) * Math.sqrt(252);
+    sBh.sharpe = sBh.volAnnual > 0 ? (mean(bhRets) * 252) / sBh.volAnnual : 0;
+    sBh.calmar = sBh.mdd !== 0 ? sBh.ret / Math.abs(sBh.mdd) : 0;
+
+    const S = [sMa, sVp, sFu, sBh];
+
+    const inWin = d => d.date >= sMa.firstDate && d.date <= sMa.lastDate;
+    const inWindow = sqStrat.perDay.filter(inWin).length || 1;
+    const sqDays = sqStrat.perDay.filter(d => inWin(d) && d.squeeze).length;
+    const sqClear = sqStrat.perDay.filter(d => inWin(d) && d.clear).length;
+    // 真正「因为策略四才变成 0%」的天数 = 融合明细里由策略四触发的清仓
+    const sqApplied = fuStrat.events.filter(e => inWin(e) && e.action === '策略四清仓').length;
+    document.getElementById('cmpSqueeze').innerHTML =
+      '<b>策略四（叠加层）诊断</b>（缩量线 ' + (FIXED.sqVRTHIN == null ? 0.8 : FIXED.sqVRTHIN).toFixed(1) +
+      (FIXED.sqFilterMA ? '，需跌破 MA' + FIXED.sqFilterMA : '，无位置过滤') + '）：窗口内均线粘合 <b>' + sqDays + '</b> 天（占 ' +
+      (sqDays / inWindow * 100).toFixed(1) + '%）' +
+      (FIXED.squeezeVeto !== false
+        ? '，其中「粘合 + 缩量」触发清仓条件 <b>' + sqClear + '</b> 天（占 ' + (sqClear / inWindow * 100).toFixed(1) +
+          '%）；实际由策略四把融合仓位压到 0% 的交易日 <b>' + sqApplied + '</b> 天。'
+        : '（当前已关闭，不参与融合）。') +
+      '<span style="color:#b45309">　⚠ 该信号触发极少，历史检验中对整体指标略为负贡献，详见页面底部说明。</span>';
+
+    renderCompare(S);
+    renderStats(S);
+    renderCoverage(vpStrat, fuseMode, fuseWv);
+    renderTables(maStrat, vpStrat, fuStrat, S);
+
+    document.getElementById('results').className = 'results show';
+    banner.className = 'banner ok show';
+    const srcLabel = function(src){
+      if (!src) return '未知';
+      if (src.indexOf('db:') === 0) return '本地库(' + src.slice(3) + ')';
+      if (src.indexOf('net:') === 0) return '网络补取(' + src.slice(4) + ')';
+      return src;
+    };
+    banner.innerHTML = '回测完成：' + stockSym.toUpperCase() + ' @ ' + sMa.firstDate + ' ~ ' + sMa.lastDate +
+      ' · 锚定 ' + (IDX_NAME[anchorSym] || anchorSym.toUpperCase()) + ' · 换手率基准 R₀=' + R0.toFixed(1) + '%' +
+      ' · 融合口径：' + FUSION_MODES[fuseMode] +
+      '（均线 × ' + fuseWv.toFixed(2) + ' + 量价 × ' + (1 - fuseWv).toFixed(2) + '，' +
+      (FIXED.squeezeVeto !== false ? '叠加策略四·均线粘合清仓' : '未叠加策略四') + '）' +
+      ' · 标的口径：' + (FQ_NAME[stockFq] || stockFq || '不复权') +
+      ' · 数据源：锚定 ' + srcLabel(anchor._src) + ' / 标的 ' + srcLabel(stock._src);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    // 等布局完成后再初始化图表
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      _charts.forEach(c => { try { c.dispose(); } catch (err) {} });   // 释放上一次的实例，避免重复 init
+      _charts.length = 0;
+      _stockChart = null;
+
+      const anchorWin = anchor.filter(r => r.date >= sMa.firstDate && r.date <= sMa.lastDate);
+      const stockWin = stock.filter(r => r.date >= sMa.firstDate && r.date <= sMa.lastDate);
+      const aBuys = [], aSells = [];
+      maStrat.events.forEach(e => {
+        if (e.date < sMa.firstDate || e.date > sMa.lastDate) return;
+        (/^B/.test(e.action) ? aBuys : aSells).push({ date: e.date, price: e.price });
+      });
+      document.getElementById('anchorTitle').textContent = '信号基于 ' + (IDX_NAME[anchorSym] || anchorSym.toUpperCase()) +
+        '（' + anchorSym + '）的 5/10/20 日均线状态机生成';
+      document.getElementById('stockTitle').textContent = '交易标的 ' + stockSym.toUpperCase() +
+        ' · ' + (FQ_NAME[stockFq] || stockFq || '不复权') + ' · ' + sMa.firstDate + ' ~ ' + sMa.lastDate +
+        '（当前显示：融合策略成交点）' +
+        (stockFq === 'hfq' ? '　※ 后复权已把历年分红再投资计入，K线绝对数值高于行情软件的现价，属正常' : '');
+
+      _cache = { stockWin: stockWin, S: S };
+      priceChart('chartAnchor', anchorWin, aBuys, aSells, { zoomStart: 0 });
+      drawStockChart('fu');
+      renderPosChart(S);
+      renderEqChart(S);
+      renderDDChart(S);
+      _charts.forEach(c => c.resize());
+    }));
+  } catch (e){
+    banner.className = 'banner show';
+    banner.innerHTML = '回测失败：' + e.message;
+  } finally {
+    runBtn.disabled = false;
+    loading.className = 'loading';
+  }
+}
+
+function drawStockChart(which){
+  if (!_cache) return;
+  const s = _cache.S[{ ma: 0, vp: 1, fu: 2 }[which]];
+  const buys = s.trades.filter(t => t.dir === 'buy').map(t => ({ date: t.date, price: t.price }));
+  const sells = s.trades.filter(t => t.dir === 'sell').map(t => ({ date: t.date, price: t.price }));
+  _stockChart = priceChart('chartStock', _cache.stockWin, buys, sells, { zoomStart: 0, chart: _stockChart });
+}
+
+document.querySelectorAll('#stockSeg button').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#stockSeg button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    const w = b.getAttribute('data-strat');
+    const label = { ma: '均线策略', vp: '量价策略', fu: '融合策略' }[w];
+    document.getElementById('stockTitle').textContent =
+      document.getElementById('stockTitle').textContent.replace(/（当前显示：.*?）/, '（当前显示：' + label + '成交点）');
+    drawStockChart(w);
+  });
+});
+
+document.getElementById('run').addEventListener('click', runBacktest);
+document.getElementById('code').addEventListener('keydown', e => { if (e.key === 'Enter') runBacktest(); });
+function __btInit(){
+  // 打开页面即把区间设为「最近 N 年」（BT.DEFAULT_YEARS），而不是静态写死的日期
+  applyPreset(BT.DEFAULT_YEARS);
+  document.querySelectorAll('[data-preset]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (document.getElementById('run').disabled) return;      // 正在回测时不打断
+      applyPreset(Number(btn.dataset.preset));
+      runBacktest();
+    });
+  });
+  // 手动改日期后取消快捷按钮的选中态，避免按钮与实际区间不一致
+  ['start', 'end'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', () => {
+      document.querySelectorAll('[data-preset]').forEach(b => b.classList.remove('on'));
+    });
+  });
+}
+window.BT = BT; window.VP = VP;
+window.addEventListener('resize', () => { _charts.forEach(c => c.resize()); });
+
+window.TimingBT = {
+  init: function(){
+    if (window.__bt_inited) return;
+    window.__bt_inited = true;
+    __btInit();
+  },
+  show: function(){
+    this.init();
+    if (typeof _charts !== 'undefined' && _charts) _charts.forEach(function(c){ try{c.resize();}catch(e){} });
+  }
+};
+
+</script>

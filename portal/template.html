@@ -1204,6 +1204,11 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
   <div id="view-weather" class="view" style="display:none">
   <!--__WEATHER_VIEW__-->
   </div><!-- /view-weather -->
+
+  <!-- ===== 大盘天气 · 择时回测（bt_tab.html = index.html 移植，build_portal 注入） ===== -->
+  <div id="view-weather-bt" class="view" style="display:none">
+  <!--__BT_VIEW__-->
+  </div><!-- /view-weather-bt -->
   </main>
 </div>
 <div id="mask" class="mask"></div>
@@ -1251,7 +1256,7 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
     short:{label:"短线策略", default:"short-momentum"},
     etf:{label:"ETF策略", default:"timing-hongli"},
     pick:{label:"个性化选股", default:"pick-home"},
-    weather:{label:"大盘天气", default:"weather-home"}
+    weather:{label:"大盘天气", default:"weather-bt"}
   };
   function categoryOf(key){
     if (key === "short" || key.indexOf("short-")===0) return "short";
@@ -1294,6 +1299,7 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
     ],
     weather:[
       {key:"weather", label:"大盘择时", children:[
+        {key:"weather-bt", label:"择时回测"},
         {key:"weather-home", label:"天气总览"}
       ]}
     ]
@@ -1316,8 +1322,9 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
     "pick-factors":  {t:"因子库", pickview:"factors"},
     "pick-backtest": {t:"回测验证", pickview:"backtest"},
     "pick-about":    {t:"方案说明", pickview:"about"},
-    "weather":       {t:"大盘天气 · 总览", c:"大盘四层择时：均线状态机 / 量价网格C / 粘合清仓 / 融合决策。覆盖 5 个宽基指数，请从左侧目录选择查看。"},
-    "weather-home":  {t:"大盘天气", weather:true}
+    "weather":       {t:"大盘天气 · 总览", c:"大盘择时回测（均线/量价/融合）与天气总览。请从左侧目录选择查看。"},
+    "weather-bt":    {t:"择时回测", weatherBt:true},
+    "weather-home":  {t:"天气总览", weather:true}
   };
   var currentCategory = "etf";
   var currentTree = TREE;
@@ -1372,7 +1379,7 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
     }
     return "";
   }
-  var PORTAL_VIEWS = ["view-hongli","view-empty","view-sector","view-hs300","view-short","view-shome","view-pick","view-morning","view-weather"];
+  var PORTAL_VIEWS = ["view-hongli","view-empty","view-sector","view-hs300","view-short","view-shome","view-pick","view-morning","view-weather","view-weather-bt"];
   function showView(id){
     PORTAL_VIEWS.forEach(function(v){
       document.getElementById(v).style.display = (v === id) ? "" : "none";
@@ -1446,6 +1453,10 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
       showView("view-short");
       document.title = "短线策略 · " + pg.t;
       setTimeout(function(){ if (window.QLab) QLab.show(pg.qlab); }, 80);
+    } else if (pg.weatherBt) {
+      showView("view-weather-bt");
+      document.title = "大盘天气 · 择时回测";
+      setTimeout(function(){ if (window.TimingBT) TimingBT.show(); }, 80);
     } else if (pg.weather) {
       showView("view-weather");
       document.title = "大盘天气 · 四层择时";

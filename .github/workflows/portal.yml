@@ -1,10 +1,14 @@
 name: Portal Pipeline (12:00 Beijing)
 
 # 门户流水线：工作日 12:00 开始更新整个页面，14:00 前出网页端结果。
-#   fetch_index(截至 T-1 完整收盘) -> fetch_etf -> fetch_snapshot(11:30 上午实时)
-#   -> build_factors(因子中间层,不入库) -> gen_payload(hl/hs300/sector/stock/morning)
+#   fetch_index(截至 T-1 完整收盘，含大盘天气 5 锚定指数) -> fetch_etf -> fetch_stock
+#   -> fetch_snapshot(11:30) -> build_factors -> gen_payload(hl/hs300/sector/stock/morning)
+#   -> build_weather(weather.json) -> build_timing_db(timing_db.json 择时回测 K 线包)
 #   -> build_portal(index.html) -> 提交 data 增量 -> 发布 HSK 文件托管
 #
+# 大盘天气数据口径：
+#   - 天气总览：kline/index/{000001,399001,000300,399006,932000} → weather.json
+#   - 择时回测：同上指数 + 常用标的 hfq → timing_db.json（缺则 fetch 补取）
 # 口径：A股日K 15:00 收盘后才产生完整 bar -> 策略信号基于 T-1 完整收盘；
 # "当天上午结果"= 11:30 实时快照（morning 段，T-1 信号 + 上午实时双轨展示）。
 # 16:35 的 mirror 任务会把今日完整收盘 K 线镜像入库，本任务增量多为 no-op（幂等）。
@@ -71,6 +75,9 @@ jobs:
       - name: Build weather payload (four-layer market weather)
         # 失败不阻断整条流水线：沿用最近一次入库的 weather.json（页面显示旧数据日期）
         run: python3 scripts/build_weather.py || echo "::warning::weather 构建失败，沿用现有 weather.json"
+
+      - name: Build timing_db (择时回测 K 线包，本地库优先)
+        run: python3 scripts/build_timing_db.py || echo "::warning::timing_db 构建失败，沿用现有 timing_db.json"
 
       - name: Build portal index.html
         run: python3 portal/build_portal.py
@@ -196,7 +203,17 @@ jobs:
           print(f"大盘天气 data_date: 本地 {lw} / 线上 {ow}")
           if lw != ow:
               ok = False
+          # 择时回测 TIMING_DB（注入 bt_tab；与 weather 同源指数日）
+          lt = ot = None
+          ltm = re.search(r'var TIMING_DB = (\{.*?\});', open("portal/index.html", encoding="utf-8").read(), re.S)
+          otm = re.search(r'var TIMING_DB = (\{.*?\});', html, re.S)
+          if ltm and otm:
+              local_t = json.loads(ltm.group(1)); online_t = json.loads(otm.group(1))
+              lt = local_t.get("data_date"); ot = online_t.get("data_date")
+          print(f"择时回测 timing_db data_date: 本地 {lt} / 线上 {ot}")
+          if lt != ot:
+              ok = False
           if not ok:
               raise SystemExit("发布验证失败：线上数据未更新（对比上方 data_date）")
-          print("发布验证通过：线上已是本次数据（红利低波 + 行业轮动 + 沪深300 + 大盘天气）")
+          print("发布验证通过：线上已是本次数据（红利低波 + 行业轮动 + 沪深300 + 大盘天气 + 择时回测）")
           EOF
