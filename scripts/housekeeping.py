@@ -86,6 +86,25 @@ def main() -> None:
         os.remove(p)
         print(f"  清理 tmp: {os.path.basename(p)}")
 
+    # 4b) manifest.jsonl 只保留最近 500 行（审计够用，避免无限追加进 git）
+    man = f"{C.META}/manifest.jsonl"
+    if os.path.exists(man):
+        with open(man, encoding="utf-8") as f:
+            lines = f.readlines()
+        if len(lines) > 500:
+            with open(man, "w", encoding="utf-8") as f:
+                f.writelines(lines[-500:])
+            print(f"  manifest.jsonl 截断 {len(lines)} → 500 行")
+
+    # 4c) 载荷体积报告（weather/timing 由 build_* 截断；此处仅告警）
+    for fn in ("weather.json", "timing_db.json"):
+        p = f"{C.PAYLOAD_DIR}/{fn}"
+        if os.path.exists(p):
+            mb = os.path.getsize(p) / 1e6
+            print(f"  payload/{fn}: {mb:.2f} MB")
+            if mb > 2.0:
+                print(f"  ⚠ {fn} > 2MB，检查 PAYLOAD_KEEP_YEARS 截断")
+
     # 5) 体积报告
     total = 0
     print("\n[housekeeping] data/ 体积（GB 软限 1GB）:")
@@ -98,6 +117,13 @@ def main() -> None:
         total += size
         print(f"  {sub:12s} {size/1024/1024:8.1f} MB")
     print(f"  {'TOTAL':12s} {total/1024/1024:8.1f} MB")
+    git_dir = os.path.join(C.BASE, ".git")
+    if os.path.isdir(git_dir):
+        git_size = sum(os.path.getsize(os.path.join(r, f))
+                       for r, _, fs in os.walk(git_dir) for f in fs)
+        print(f"  {'.git':12s} {git_size/1024/1024:8.1f} MB")
+        if git_size > 0.8 * 1024 ** 3:
+            print("  ⚠ .git 接近 1GB：考虑 LFS / 冷数据迁出 / 历史 gc")
     if total > 0.9 * 1024 ** 3:
         print("  ⚠ 超过 1GB 软限，需扩大保留期裁剪或迁移冷数据！")
     C.manifest_add({"event": "housekeeping", "at": C.bj_now(),

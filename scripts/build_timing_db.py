@@ -30,6 +30,9 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common as C  # noqa: E402
 
+# 与 build_weather 一致：门户注入截断，parquet 仍保留全历史
+PAYLOAD_KEEP_YEARS = int(os.environ.get("PAYLOAD_KEEP_YEARS", "5"))
+
 # 与 index.html 锚定指数一致
 INDEX_META = {
     "000001": ("sh000001", "上证指数"),
@@ -160,39 +163,56 @@ def _ensure_stock(tx: str, code6: str) -> pd.DataFrame:
         print(f"[build_timing_db] 警告: {code6} 补取异常: {e}")
         return df
 
+def _trim_rows(rows: list) -> list:
+    """按末日期回看 PAYLOAD_KEEP_YEARS 截断 [[date,...], ...]。"""
+    if not rows or PAYLOAD_KEEP_YEARS <= 0:
+        return rows
+    last = pd.Timestamp(rows[-1][0])
+    cutoff = (last - pd.DateOffset(years=PAYLOAD_KEEP_YEARS)).strftime("%Y-%m-%d")
+    return [r for r in rows if r[0] >= cutoff]
+
+
 def build() -> dict:
     C.ensure_dirs()
     _ensure_indices()
 
     indices = {}
-    data_dates = []
+    index_dates = []
     for code, (secid, name) in INDEX_META.items():
         df = C.read_df(f"{C.INDEX_DIR}/{code}.parquet")
-        rows = _rows_from_index_df(df)
+        rows = _trim_rows(_rows_from_index_df(df))
         if not rows:
             print(f"[build_timing_db] 警告: 指数 {code} 仍无数据")
             continue
         indices[code] = {"name": name, "secid": secid, "rows": rows}
-        data_dates.append(rows[-1][0])
+        index_dates.append(rows[-1][0])
         print(f"[build_timing_db] 指数 {code} {name}: {len(rows)} 行 "
               f"({rows[0][0]} → {rows[-1][0]})")
 
     stocks = {}
+    stock_dates = []
     for tx, code6, name in DEFAULT_STOCKS:
         df = _ensure_stock(tx, code6)
-        rows = _rows_from_stock_df(df)
+        rows = _trim_rows(_rows_from_stock_df(df))
         if not rows:
             print(f"[build_timing_db] 警告: 股票 {code6} 无数据，跳过")
             continue
         stocks[code6] = {"name": name, "tx": tx, "hfq": rows}
-        data_dates.append(rows[-1][0])
+        stock_dates.append(rows[-1][0])
         print(f"[build_timing_db] 股票 {code6} {name}: {len(rows)} 行 "
               f"({rows[0][0]} → {rows[-1][0]})")
 
-    data_date = max(data_dates) if data_dates else None
+    # 以指数 min 为准（股票可略旧）；混日时不虚高
+    if not index_dates:
+        raise SystemExit("[build_timing_db] 无任何指数数据")
+    uniq = sorted(set(index_dates))
+    if len(uniq) > 1:
+        print(f"[build_timing_db] 警告: 指数混日 {uniq}，data_date 取 min={uniq[0]}")
+    data_date = uniq[0]
     payload = {
         "gen_time": C.bj_now() if hasattr(C, "bj_now") else _bj_today(),
         "data_date": data_date,
+        "data_dates": uniq,
         "indices": indices,
         "stocks": stocks,
     }

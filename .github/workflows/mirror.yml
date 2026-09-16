@@ -50,8 +50,15 @@ jobs:
       - name: Install deps
         run: pip install -r requirements.txt
 
+      - name: Ensure trade calendar not near expiry
+        run: python3 scripts/ensure_calendar.py
+
+      - name: Refresh cn10y treasury yield (soft)
+        run: python3 engine/refresh_cn10y.py || echo "::warning::cn10y 刷新失败，沿用仓库缓存"
+
       - name: Fetch index daily bars (today complete close)
-        # last_complete_day(): >= 15:30 北京取今日；CSIndex 收盘后发布当日值
+        # last_complete_day(): >= 15:30 北京取今日；CSIndex 收盘后发布当日值；
+        # H30269/000300/932000 CSI 失败时走东财/腾讯兜底；H20269/H00300 无备用，靠 health 闸门
         run: python3 scripts/fetch_index.py
 
       - name: Fetch ETF daily bars (Tencent channel)
@@ -87,18 +94,19 @@ jobs:
 
       - name: Build weather payload (four-layer market weather)
         # 收盘后 CSI(000300/932000) 已发布当日值；重建 weather.json，避免仅腾讯通道先行时混日。
-        # 失败不阻断镜像：沿用已入库 weather.json，由次日 portal 再试。
-        run: python3 scripts/build_weather.py || echo "::warning::weather 构建失败，沿用现有 weather.json"
+        run: python3 scripts/build_weather.py
 
       - name: Build timing_db (择时回测 K 线包)
-        # 依赖上方 fetch_index + fetch_stock；缺标的时脚本内会单股补取。
-        run: python3 scripts/build_timing_db.py || echo "::warning::timing_db 构建失败，沿用现有 timing_db.json"
+        run: python3 scripts/build_timing_db.py
+
+      - name: Health gates (calendar / cn10y / weather freshness + stock coverage)
+        run: python3 scripts/check_health.py --stock-coverage
 
       - name: Commit increments
         run: |
           git config user.name "quant-data-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add data/
+          git add data/ engine/backtest/cn10y_daily.csv engine/trade_calendar.csv
           if git diff --cached --quiet; then
             echo "无新增变更（节假日/无增量），跳过 commit"
           else

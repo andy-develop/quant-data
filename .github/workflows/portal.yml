@@ -50,6 +50,13 @@ jobs:
       - name: Install deps
         run: pip install -r requirements.txt
 
+      - name: Ensure trade calendar not near expiry
+        run: python3 scripts/ensure_calendar.py
+
+      - name: Refresh cn10y treasury yield (soft)
+        # 估值门依赖 cn10y；refresh 写错路径曾导致静默腐烂。失败不阻断（沿用仓内 CSV）。
+        run: python3 engine/refresh_cn10y.py || echo "::warning::cn10y 刷新失败，沿用仓库缓存"
+
       - name: Fetch index daily bars (T-1 complete close)
         run: python3 scripts/fetch_index.py
 
@@ -75,11 +82,14 @@ jobs:
         run: python3 scripts/gen_payload.py
 
       - name: Build weather payload (four-layer market weather)
-        # 失败不阻断整条流水线：沿用最近一次入库的 weather.json（页面显示旧数据日期）
-        run: python3 scripts/build_weather.py || echo "::warning::weather 构建失败，沿用现有 weather.json"
+        # 硬失败：禁止带着过期 weather.json 绿发布（旧版 || warn 会让 verify 本地自洽假绿）
+        run: python3 scripts/build_weather.py
 
       - name: Build timing_db (择时回测 K 线包，本地库优先)
-        run: python3 scripts/build_timing_db.py || echo "::warning::timing_db 构建失败，沿用现有 timing_db.json"
+        run: python3 scripts/build_timing_db.py
+
+      - name: Health gates (calendar / cn10y / weather freshness)
+        run: python3 scripts/check_health.py
 
       - name: Build portal index.html
         run: python3 portal/build_portal.py
@@ -88,7 +98,7 @@ jobs:
         run: |
           git config user.name "quant-data-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add data/ scripts/ requirements.txt
+          git add data/ scripts/ requirements.txt engine/backtest/cn10y_daily.csv engine/trade_calendar.csv
           if git diff --cached --quiet; then
             echo "无新增变更，跳过 commit"
           else
@@ -192,10 +202,12 @@ jobs:
         run: |
           python3 - <<'EOF'
           import json, os, re, urllib.request
-          url = "https://hci3bx.gicp.fun"   # 回退：正常以 data/hsk-resource.json 持久化 URL 为准
-          if os.path.exists("data/hsk-resource.json"):
-              rec = json.load(open("data/hsk-resource.json", encoding="utf-8"))
-              url = rec.get("url", url)
+          if not os.path.exists("data/hsk-resource.json"):
+              raise SystemExit("缺少 data/hsk-resource.json，无法验证发布（禁止硬编码旧 URL）")
+          rec = json.load(open("data/hsk-resource.json", encoding="utf-8"))
+          url = rec.get("url")
+          if not url:
+              raise SystemExit("hsk-resource.json 无 url 字段")
           print(f"线上地址: {url}")
           local = json.loads(re.search(r'<script id="PAYLOAD" type="application/json">(.*?)</script>', open("portal/index.html", encoding="utf-8").read(), re.S).group(1))
           with urllib.request.urlopen(url, timeout=30) as r:

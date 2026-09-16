@@ -41,6 +41,10 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common as C  # noqa: E402
 
+# 门户注入截断：全量 K 线进 HTML 会使 index.html ~5MB+、git 日更膨胀。
+# parquet 仍保留完整历史；载荷默认近 5 年（可用环境变量覆盖）。
+PAYLOAD_KEEP_YEARS = int(os.environ.get("PAYLOAD_KEEP_YEARS", "5"))
+
 # ===== 常量（与 index.html 逐字一致） =====
 FIXED = dict(R0=1.0, fuseMode="blendC", fuseW=0.5, vpLevels=4,
              vetoMode="any", squeezeVeto=True, sqVRTHIN=0.8, sqFilterMA=20)
@@ -510,6 +514,13 @@ def build_index(code, meta):
         print(f"[build_weather] 警告: 指数 {code} 无数据，跳过")
         return None
     df = df.sort_values("date").reset_index(drop=True)
+    if PAYLOAD_KEEP_YEARS > 0 and len(df):
+        cutoff = df["date"].max() - pd.DateOffset(years=PAYLOAD_KEEP_YEARS)
+        before = len(df)
+        df = df[df["date"] >= cutoff].reset_index(drop=True)
+        if len(df) < before:
+            print(f"[build_weather] {code}: 载荷截断 {before} → {len(df)} 行 "
+                  f"（近 {PAYLOAD_KEEP_YEARS} 年）")
     rows = [{"date": r.date.strftime("%Y-%m-%d"),
              "open": float(r.open), "close": float(r.close),
              "high": float(r.high), "low": float(r.low), "volume": float(r.volume)}
@@ -567,9 +578,12 @@ def main():
     if not out["indices"]:
         print("错误: 无任何指数数据可输出")
         sys.exit(1)
-    # data_date = 各指数最新交易日的并集（全部一致时即全局数据日期）
+    # data_date = 各指数最新交易日的最小值（混日时取保守端，避免 timing/UI 虚高）
     dates = sorted({v["w"]["date"] for v in out["indices"].values()})
-    out["data_date"] = dates[-1] if len(dates) == 1 else dates
+    if len(dates) > 1:
+        print(f"[build_weather] 警告: 指数混日 {dates}，data_date 取 min={dates[0]}")
+    out["data_date"] = dates[0]
+    out["data_dates"] = dates  # 审计用：若 len>1 说明 CSI/腾讯未齐
     p = f"{C.PAYLOAD_DIR}/weather.json"
     os.makedirs(os.path.dirname(p), exist_ok=True)
     with open(p, "w", encoding="utf-8") as f:

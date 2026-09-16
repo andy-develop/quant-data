@@ -1,11 +1,11 @@
 # HANDOFF — quant-data 统一数据仓库与量化门户
 
-> 更新：2026-09-15（代码整理：三仓库合并为单仓库，旧链路全面退役）
+> 更新：2026-09-16（数据可靠性：CSI/腾讯/东财多通道兜底、cn10y 路径修复、健康闸门加固）
 > 历史演进（2026-09-15 前）详见已归档仓库 `andy-develop/red-dividend-strategy` 的 HANDOFF.md（§1-§34），本文件为唯一交接主文档。
 
 ## 1. 项目概述
 
-一个 GitHub 私有仓库（`andy-develop/quant-data`）承载全部代码与数据，服务一个**三合一量化门户**（https://hci3bx.gicp.fun）：
+一个 GitHub 私有仓库（`andy-develop/quant-data`）承载全部代码与数据，服务一个**三合一量化门户**（当前 URL 以 `data/hsk-resource.json` 为准，HSK 更新禁用会导致 URL 漂移）：
 
 - **ETF 策略**（原 red-dividend-strategy）：红利低波（四态仓位机 v7.12+）、沪深300 择时（v8.0 变体）、行业轮动（v1.1，21 行业 × 32 ETF）
 - **短线策略 / 个性化选股**（原 stock-factor-engine）：股票动量/波动因子（DuckDB 因子层）→ 选股列表
@@ -59,13 +59,14 @@ quant-data/
 
 ## 4. 双 GHA 任务（满足"12:00 更新、14:00 前出结果"）
 
-1. **portal.yml**（`0 4 * * 1-5` UTC = 北京 12:00，75min timeout）：fetch_index → fetch_etf(PREFER_TX=1) → fetch_stock（`|| warn` 非阻断，mirror 已入库时秒级 no-op）→ fetch_snapshot（不阻断）→ build_factors → gen_payload → **build_weather**（不阻断，失败沿用旧 weather.json）→ build_portal → commit data → **HSK 发布**（skip-if-unchanged：data_date 三端 + content_sha）→ verify 线上 data_date。
-2. **mirror.yml**（`35 8 * * 1-5` UTC = 北京 16:35，120min）：收盘后镜像当日完整 K 线（fetch_index → fetch_etf → fetch_stock 主通道）→ housekeeping（**周一 `--compact`** 并入分片）→ 有变更才 commit+push。commit 先 `git pull --rebase` 防并发推送非快进。
+1. **portal.yml**（`0 4 * * 1-5` UTC = 北京 12:00，75min timeout）：ensure_calendar → **refresh_cn10y（软）** → fetch_index → fetch_etf(PREFER_TX=1) → fetch_stock（`|| warn` 非阻断）→ fetch_snapshot（不阻断）→ build_factors → gen_payload → build_weather → build_timing_db → **check_health** → build_portal → commit（含 cn10y/日历）→ **HSK 发布** → verify 线上 data_date。
+2. **mirror.yml**（`35 8 * * 1-5` UTC = 北京 16:35，120min）：ensure_calendar → **refresh_cn10y（软）** → fetch_index → fetch_etf → fetch_stock → housekeeping → build_weather/timing_db → **check_health --stock-coverage** → commit（含 cn10y/日历）。
 
 ## 5. 关键实现与踩坑记录
 
-- **股票 fqkline WAF 经验**：`ifzq/web.ifzq` 双主机均曾被封 → **首选 `proxy.finance.qq.com`**（官方代理，实测 30+ 连发不触发）；主机池故障转移（proxy → ifzq → web.ifzq），被封主机 10 分钟回归。**FQ_MAX=800**（腾讯 >800 会截断到 640 根，不足 3 年）。降级探测 `backoff=False`，防 empty 股票误触发全局退避。
-- **fetch_index 双通道**：CSI index-perf（T-1 完整收盘口径）+ 腾讯 fqkline（`last_complete_day` 清洗盘中半截 bar）。东财对 CI runner IP 连接级限流 → 弃用。
+- **股票 fqkline WAF 经验**：`ifzq/web.ifzq` 双主机均曾被封 → **首选 `proxy.finance.qq.com`**（官方代理，实测 30+ 连发不触发）；主机池故障转移（proxy → ifzq → web.ifzq），被封主机 10 分钟回归。**FQ_MAX=800**（腾讯 >800 会截断到 640 根，不足 3 年）。降级探测 `backoff=False`，防 empty 股票误触发全局退避。指数/ETF 腾讯通道已复用同一主机池（`common.tx_fqkline_get`）。
+- **fetch_index 多通道**：CSI index-perf 主通道；价格指数断源时 **东财 push2his**（H30269/000300/932000）→ **腾讯**（000300）；全收益 H20269/H00300 无等价源。腾讯盘中 bar 按 `last_complete_day` 清洗。
+- **fetch_etf**：东财主 / 腾讯兜底；`PREFER_TX=1`（CI）时腾讯失败会**回退东财**，避免单通道假绿。
 - **gen_payload 引擎加载**：`sys.path.insert(0, engine)` 再插 `engine/backtest`，用 `EBT.__file__` 断言防顶层 engine.py 遮蔽（engine/ 下无顶层 engine.py，检查保留为防御）。
 - **发布**：HSK 文件托管，`data/hsk-resource.json` 持久化资源（url=https://hci3bx.gicf.fun，resource_id=1789445817900755204）；无变化跳过；403 11301002 自动创建新资源。secrets：`HSK_API_KEY`。
 - **⚠️ HSK URL 漂移**：HSK 的 update function 已被禁用（403 11301002），内容有变化时必须建新资源 → URL 会漂移（2026-09-15 已从 jjhujm.gicf.fun 变为 hci3bx.gicf.fun）。旧资源仍可访问但内容冻结。验证步骤以 `data/hsk-resource.json` 的最新 URL 为准。
@@ -94,9 +95,9 @@ quant-data/
 
 - **股票 hfq 缺口 105 只（B 型）**：腾讯数据源本身断档/停牌（三主机一致无 hfqday），非代码/WAF 问题；`fetch_stock` 每日重试预期持续失败（不触发退避，无副作用）。
 - **morning 快照**：11:30 抓取失败时回退最近快照（7 天保留），页面照常展示。
-- **CSI 指数（H20269/H30269 等）无备用通道**：全收益指数仅中证官网发布，5 次重试 + 幂等增量；失败时 CI 红但仓库保留昨日数据，门户不发布残缺。
+- **CSI 全收益（H20269/H00300）仍无备用通道**：仅中证官网；价格指数 H30269/000300/932000 已加东财兜底，000300 另有腾讯。失败时保留昨日数据，**check_health 收盘后缺当日即红**（防静默腐烂）。
 - **HSK URL 漂移**（见 §5）：update function 被禁用，内容变更即建新资源，门户 URL 可能不定期变化；`data/hsk-resource.json` 为准。
-- **cn10y 十年期国债缓存**：静态 CSV（2013-2026），建议每季度手动 `python3 engine/refresh_cn10y.py` 刷新（需 akshare）；缺失时引擎补齐估值字段为 NaN，估值门大面积缺失流水线红掉。
+- **cn10y 十年期国债缓存**：`engine/backtest/cn10y_daily.csv`（⚠️ `refresh_cn10y.py` 曾写错到 `engine/cn10y_daily.csv`，已修）；东财 HTTP 主通道 + akshare 回退；portal/mirror 软刷新，健康闸门滞后 >10 天红。
 - **因子层不入库**（每次重算）：如需历史因子回放需另行持久化。
 - **engine/ 内 hs300_update.py 等离线工具**：CI 不再调用（gen_payload 内置沪深300 变体），保留供本地回测/体检。
 - **qlab 段依赖外部报告**：quant-lab 报告为本地产物，CI 回退 `data/qlab/` 归档（懒更新）。

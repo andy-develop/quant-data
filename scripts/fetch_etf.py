@@ -48,23 +48,11 @@ def fetch_em_kline(s: requests.Session, secid: str, start: str, end: str) -> lis
 
 
 def fetch_tx_kline(s: requests.Session, sym: str, start: str, end: str) -> list:
-    """腾讯 ETF 日K（fqkline 已按前复权返回，实测与东财 fqt=1 数值一致；单次 2000 根向前分页）。"""
+    """腾讯 ETF 日K（fqkline 前复权口径与东财 fqt=1 一致）；主机池故障转移。"""
     out: dict[str, list] = {}
     e = end
     while True:
-        bars: list = []
-        for k in range(5):
-            try:
-                r = s.get("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
-                          params={"param": f"{sym},day,{start},{e},2000,"}, timeout=15)
-                d = (r.json() or {}).get("data") or {}
-                bars = [x for x in (d.get(sym) or {}).get("day") or []
-                        if isinstance(x, list) and len(x) >= 6]
-                if bars:
-                    break
-            except Exception:
-                pass
-            time.sleep(1.5 * (k + 1))
+        bars = C.tx_fqkline_get(s, sym, start, e, chunk=2000)
         if not bars:
             break
         for b in bars:
@@ -133,6 +121,7 @@ def update() -> int:
             continue
         start_dash = (last + pd.Timedelta(days=1)).strftime("%Y-%m-%d") if last is not None else "2015-01-01"
         source = "tx" if prefer_tx else "em"
+        rows = []
         if source == "em":
             try:
                 rows = _rows_from_em(fetch_em_kline(s, row["secid"], start, end))
@@ -143,10 +132,32 @@ def update() -> int:
         if source == "tx":
             try:
                 rows = _rows_from_tx(fetch_tx_kline(s, _tx_symbol(row["code"]), start_dash, end_dash))
-                tx_ok += 1
+                if rows:
+                    tx_ok += 1
+                elif prefer_tx:
+                    # PREFER_TX=1 时腾讯空/失败 → 回退东财（隐藏单点：CI 曾只走腾讯）
+                    print(f"[fetch_etf] {row['code']} 腾讯无数据，回退东财")
+                    try:
+                        rows = _rows_from_em(fetch_em_kline(s, row["secid"], start, end))
+                        em_ok += 1
+                    except Exception as e2:
+                        print(f"[fetch_etf] {row['code']} 东财回退也失败: {e2}")
+                        continue
+                else:
+                    print(f"[fetch_etf] {row['code']} 腾讯无数据")
+                    continue
             except Exception as e2:
-                print(f"[fetch_etf] {row['code']} 腾讯失败: {e2}")
-                continue
+                if prefer_tx:
+                    print(f"[fetch_etf] {row['code']} 腾讯失败({e2}), 回退东财")
+                    try:
+                        rows = _rows_from_em(fetch_em_kline(s, row["secid"], start, end))
+                        em_ok += 1
+                    except Exception as e3:
+                        print(f"[fetch_etf] {row['code']} 东财回退也失败: {e3}")
+                        continue
+                else:
+                    print(f"[fetch_etf] {row['code']} 腾讯失败: {e2}")
+                    continue
         if not rows:
             continue
         df = pd.DataFrame(rows)

@@ -37,7 +37,7 @@ WEEK_J0 = False             # 实验否决：周线共振门（wj<0 才允许超
 VAL_WIN = 3                 # 剪刀差滚动分位窗口（年；2y/3y/5y/expanding 实测：3y 收益-回撤平衡且无冷启动问题；5y 冷启动致2016-19段差）
 CN10Y_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cn10y_daily.csv")
 MAX_POS = 1.50
-# H-1 修复（策略层审计）：交易日历（仓库根 trade_calendar.csv，2013-2026）用于判定
+# H-1 修复（策略层审计）：交易日历（engine/trade_calendar.csv，列 trade_date）用于判定
 # "未完成 ISO 周"——df 末日之后若仍有交易日落在同一 ISO 周，则该周未完成。
 _CAL_CSV = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "trade_calendar.csv")
 _cal_sorted = None
@@ -48,7 +48,9 @@ def _load_cal():
     if _cal_sorted is None:
         try:
             if os.path.exists(_CAL_CSV):
-                _cal_sorted = sorted(pd.read_csv(_CAL_CSV, parse_dates=["date"])["date"].dt.date.tolist())
+                raw = pd.read_csv(_CAL_CSV)
+                col = "trade_date" if "trade_date" in raw.columns else "date"
+                _cal_sorted = sorted(pd.to_datetime(raw[col]).dt.date.tolist())
             else:
                 _cal_sorted = []
         except Exception:

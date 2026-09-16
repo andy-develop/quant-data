@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """指数日K 增量更新：
-  1) 中证指数官网（csindex index-perf）：H20269/H30269/H00300/000300 —— 当日值收盘后发布，
+  1) 中证指数官网（csindex index-perf）：H20269/H30269/H00300/000300/932000 —— 当日值收盘后发布，
      盘中拉取只能拿到 T-1（12:00 门户任务用 T-1 值，符合"策略信号基于完整收盘"口径）。
-  2) 腾讯 fqkline：000001/000905/000852（主要指数 10 年）—— 盘中含半截 bar，
-     按 last_complete_day 截止清洗（12:00 只保留 T-1 前完整 bar；东财对 CI IP 连接级限流，弃用）。
+  2) CSI 断源兜底：东财 push2his（H30269/000300/932000）→ 腾讯 fqkline（000300）；
+     全收益 H20269/H00300 无等价通道，靠 check_health 拦截过期发布。
+  3) 腾讯 fqkline：000001/000905/000852/399001/399006 —— 主机池故障转移；
+     按 last_complete_day 截止清洗盘中半截 bar。
 
 用法: python3 scripts/fetch_index.py [--backfill]   # --backfill 仅拉全量历史(迁移用)
 """
@@ -22,6 +24,17 @@ import common as C  # noqa: E402
 UA = {"User-Agent": C.UA, "Referer": "https://www.csindex.com.cn/"}
 
 CSI_CODES = ["H20269", "H30269", "H00300", "000300", "932000"]
+# 价格指数 CSI 断源/滞后时的腾讯兜底（全收益 H20269/H00300 无等价通道，仍仅 CSI）
+CSI_TX_FALLBACK = {
+    "000300": "sh000300",
+    # 932000（中证2000）腾讯无稳定符号；勿用 sz399303（国证2000）冒充
+}
+# 东财 push2his 兜底（CSI 官网失败时）：H30269/000300/932000 有行情；全收益 H20269/H00300 无
+CSI_EM_FALLBACK = {
+    "H30269": "2.H30269",
+    "000300": "1.000300",
+    "932000": "2.932000",
+}
 TX_CODES = {  # 主要指数(10年) — 腾讯 fqkline 主通道（东财对 CI IP 连接级限流，见 red-dividend 台账）
     "000001": ("sh000001", "上证指数"),
     "000905": ("sh000905", "中证500"),
@@ -41,12 +54,22 @@ TX_CHUNK = 2000                   # 腾讯单次最大 bar 数（实测 2000 可
 
 def last_complete_day() -> str:
     """当前可用的"最后一个完整交易日"（YYYY-MM-DD）：
-    收盘后(>=15:30 北京)取今天，否则取上一交易日；假日自动回退（用交易日历）。"""
+    收盘后(>=15:30 北京)取今天，否则取上一交易日；假日自动回退（用交易日历）。
+
+    若日历末日已过期（今天 > max(cal)），抛错阻断——避免永远卡在末日导致空增量假成功。
+    """
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8)))
     d = now.date()
     cal = C.read_df(f"{C.META}/trade_calendar.parquet")
     if len(cal):
-        days = set(pd.to_datetime(cal["date"]).dt.date)
+        cal_dates = pd.to_datetime(cal["date"]).dt.date
+        days = set(cal_dates)
+        cal_end = cal_dates.max()
+        if d > cal_end:
+            raise RuntimeError(
+                f"交易日历已过期（末日 {cal_end} < 今天 {d}）。"
+                f"请运行: python3 scripts/ensure_calendar.py"
+            )
     else:
         days = None
     if now.time() >= datetime.time(15, 30) and (days is None or d in days):
@@ -85,25 +108,13 @@ def fetch_csi(s: requests.Session, code: str, start: str, end: str) -> list:
 
 
 def fetch_tx_kline(s: requests.Session, sym: str, start: str, end: str) -> list:
-    """腾讯指数日K：单次最多 2000 根（返回区间末尾 N 根），从 end 向前分页直到覆盖 start。
+    """腾讯指数日K：主机池故障转移（proxy → ifzq → web.ifzq）；
+    单次最多 2000 根，从 end 向前分页直到覆盖 start。
     返回 bars: [date,open,close,high,low,volume]，按日期升序。"""
     out: dict[str, list] = {}
     e = end
     while True:
-        bars: list = []
-        last = None
-        for k in range(5):
-            try:
-                r = s.get("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
-                          params={"param": f"{sym},day,{start},{e},{TX_CHUNK},"}, timeout=15)
-                d = (r.json() or {}).get("data", {}).get(sym) or {}
-                bars = [x for x in (d.get("day") or []) if isinstance(x, list) and len(x) >= 6]
-                if bars:
-                    break
-                last = ValueError("empty bars")
-            except Exception as ex:
-                last = ex
-            time.sleep(1.5 * (k + 1))
+        bars = C.tx_fqkline_get(s, sym, start, e, chunk=TX_CHUNK)
         if not bars:
             break
         for b in bars:
@@ -114,6 +125,76 @@ def fetch_tx_kline(s: requests.Session, sym: str, start: str, end: str) -> list:
         e = (pd.Timestamp(first) - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
         time.sleep(0.4)
     return [out[k] for k in sorted(out) if k >= start]
+
+
+def fetch_em_kline(s: requests.Session, secid: str, start: str, end: str) -> list:
+    """东财指数日K（push2his，klt=101 fqt=0 不复权）。
+    返回 CSV 行列表；空/失败返回 []。"""
+    url = ("https://push2his.eastmoney.com/api/qt/stock/kline/get?"
+           f"secid={secid}&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56,f57"
+           f"&klt=101&fqt=0&beg={start}&end={end}")
+    last = None
+    for k in range(4):
+        try:
+            r = s.get(url, headers={"User-Agent": C.UA, "Referer": "https://quote.eastmoney.com/"},
+                      timeout=30)
+            d = (r.json() or {}).get("data") or {}
+            kl = d.get("klines") or []
+            if kl:
+                return kl
+            last = ValueError("empty klines")
+        except Exception as e:
+            last = e
+        time.sleep(1.5 + k)
+    if last:
+        print(f"[fetch_index] EM {secid} 失败: {last}")
+    return []
+
+
+def _em_to_df(code: str, klines: list) -> pd.DataFrame:
+    """东财 klines 'date,o,c,h,l,v,amount' → DataFrame。"""
+    rows = []
+    for k in klines:
+        parts = k.split(",") if isinstance(k, str) else list(k)
+        if len(parts) < 6:
+            continue
+        try:
+            rows.append({
+                "date": pd.to_datetime(parts[0]),
+                "open": float(parts[1]), "close": float(parts[2]),
+                "high": float(parts[3]), "low": float(parts[4]),
+                "volume": float(parts[5]),
+            })
+        except (ValueError, TypeError, IndexError):
+            continue
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df.insert(0, "code", code)
+    return df
+
+
+def _fill_from_em(s: requests.Session, code: str, secid: str, old: pd.DataFrame) -> int:
+    """CSI 无增量时，用东财补齐至 last_complete_day。"""
+    p = f"{C.INDEX_DIR}/{code}.parquet"
+    last = old["date"].max() if len(old) else pd.Timestamp("2013-07-19")
+    cutoff = pd.Timestamp(last_complete_day())
+    if len(old) and last >= cutoff:
+        return len(old)
+    start = (last + pd.Timedelta(days=1)).strftime("%Y%m%d")
+    end = cutoff.strftime("%Y%m%d")
+    kl = fetch_em_kline(s, secid, start, end)
+    new = _em_to_df(code, kl)
+    if new.empty:
+        return len(old)
+    new = new[(new["date"] > last) & (new["date"] <= cutoff)]
+    if new.empty:
+        return len(old)
+    df = pd.concat([old, new], ignore_index=True).drop_duplicates("date")
+    df = df.sort_values("date").reset_index(drop=True)
+    C.write_df(df, p, sort=["code", "date"])
+    print(f"[fetch_index] {code}: EM兜底 +{len(new)} 行 -> {len(df)} 行 "
+          f"({df['date'].max().date()})")
+    return len(df)
 
 
 def _csi_to_df(code: str, rows: list) -> pd.DataFrame:
@@ -165,6 +246,29 @@ def _tx_to_df(code: str, bars: list) -> pd.DataFrame:
     return df
 
 
+def _fill_from_tx(s: requests.Session, code: str, sym: str, old: pd.DataFrame) -> int:
+    """CSI 无增量时，用腾讯补齐至 last_complete_day（仅价格指数）。"""
+    p = f"{C.INDEX_DIR}/{code}.parquet"
+    last = old["date"].max() if len(old) else pd.Timestamp("2013-07-19")
+    cutoff = pd.Timestamp(last_complete_day())
+    if len(old) and last >= cutoff:
+        return len(old)
+    start = (last + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    bars = fetch_tx_kline(s, sym, start, cutoff.strftime("%Y-%m-%d"))
+    new = _tx_to_df(code, bars)
+    if new.empty:
+        return len(old)
+    new = new[(new["date"] > last) & (new["date"] <= cutoff)]
+    if new.empty:
+        return len(old)
+    df = pd.concat([old, new], ignore_index=True).drop_duplicates("date")
+    df = df.sort_values("date").reset_index(drop=True)
+    C.write_df(df, p, sort=["code", "date"])
+    print(f"[fetch_index] {code}: TX兜底 +{len(new)} 行 -> {len(df)} 行 "
+          f"({df['date'].max().date()})")
+    return len(df)
+
+
 def update_csi(s: requests.Session, code: str) -> int:
     p = f"{C.INDEX_DIR}/{code}.parquet"
     old = C.read_df(p)
@@ -173,18 +277,40 @@ def update_csi(s: requests.Session, code: str) -> int:
     start = (last + pd.Timedelta(days=1)).strftime("%Y%m%d")
     if start > today:
         return len(old)
-    rows = fetch_csi(s, code, start, today)
-    if not rows:
-        return len(old)
-    new = _csi_to_df(code, rows)
-    new = new[new["date"] > last]
-    if new.empty:
-        return len(old)
-    df = pd.concat([old, new], ignore_index=True).drop_duplicates("date")
-    df = df.sort_values("date").reset_index(drop=True)
-    C.write_df(df, p, sort=["code", "date"])
-    print(f"[fetch_index] {code}: +{len(new)} 行 -> {len(df)} 行 ({df['date'].max().date()})")
-    return len(df)
+    try:
+        rows = fetch_csi(s, code, start, today)
+    except Exception as e:
+        print(f"[fetch_index] {code}: CSI 失败 ({e})")
+        rows = []
+    if rows:
+        new = _csi_to_df(code, rows)
+        new = new[new["date"] > last]
+        if not new.empty:
+            df = pd.concat([old, new], ignore_index=True).drop_duplicates("date")
+            df = df.sort_values("date").reset_index(drop=True)
+            C.write_df(df, p, sort=["code", "date"])
+            print(f"[fetch_index] {code}: +{len(new)} 行 -> {len(df)} 行 ({df['date'].max().date()})")
+            return len(df)
+        old = C.read_df(p)
+    # CSI 空增量或失败：东财 → 腾讯（有则用）；全收益 H20269/H00300 无备用通道
+    cur = old if len(old) else C.read_df(p)
+    secid = CSI_EM_FALLBACK.get(code)
+    if secid:
+        n = _fill_from_em(s, code, secid, cur)
+        cur = C.read_df(p)
+        if len(cur) and cur["date"].max() >= pd.Timestamp(last_complete_day()):
+            return n
+    sym = CSI_TX_FALLBACK.get(code)
+    if sym:
+        return _fill_from_tx(s, code, sym, cur if len(cur) else C.read_df(p))
+    if not secid and not sym:
+        cutoff = pd.Timestamp(last_complete_day())
+        last = cur["date"].max() if len(cur) else None
+        if last is None or last < cutoff:
+            print(f"[fetch_index] {code}: CSI 无增量且无备用通道 "
+                  f"(last={None if last is None else last.date()} < {cutoff.date()})；"
+                  f"依赖仓库旧数据，健康闸门将拦截过期发布")
+    return len(cur) if len(cur) else len(C.read_df(p))
 
 
 def update_tx(s: requests.Session, code: str, sym: str) -> int:

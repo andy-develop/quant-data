@@ -29,6 +29,9 @@ TMP = f"{DATA}/.tmp"
 
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 
+# 腾讯 fqkline 主机池（与 fetch_stock 一致）：proxy 首选，WAF 轮换封禁时自动降级
+TX_FQ_HOSTS = ["proxy.finance.qq.com", "ifzq.gtimg.cn", "web.ifzq.gtimg.cn"]
+
 # ---------------- 路径 ----------------
 
 
@@ -151,3 +154,47 @@ def manifest_add(entry: dict) -> None:
     os.makedirs(os.path.dirname(p), exist_ok=True)
     with open(p, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+# ---------------- 腾讯 fqkline 主机池 ----------------
+
+
+def tx_fqkline_path(host: str) -> str:
+    """proxy.finance.qq.com 走 /ifzqgtimg 前缀；其余主机走 /appstock。"""
+    if host == "proxy.finance.qq.com":
+        return "/ifzqgtimg/appstock/app"
+    return "/appstock/app"
+
+
+def tx_fqkline_get(session, sym: str, start: str, end: str, chunk: int = 2000,
+                   hosts=None, timeout: float = 15) -> list:
+    """腾讯日K（未复权/指数 day）：按主机池依次尝试，返回 bars 列表。
+
+    单次最多 chunk 根（返回区间末尾），调用方自行向前分页。
+    失败返回 []（不抛），由调用方决定是否重试/换源。
+    """
+    import time
+    hosts = list(hosts or TX_FQ_HOSTS)
+    last = None
+    for host in hosts:
+        url = f"https://{host}{tx_fqkline_path(host)}/fqkline/get"
+        for k in range(3):
+            try:
+                r = session.get(url, params={"param": f"{sym},day,{start},{end},{chunk},"},
+                                timeout=timeout)
+                if r.status_code in (403, 429) or "501page" in r.text[:300]:
+                    last = RuntimeError(f"waf@{host}")
+                    break  # 换下一主机
+                d = (r.json() or {}).get("data", {}).get(sym) or {}
+                bars = [x for x in (d.get("day") or [])
+                        if isinstance(x, list) and len(x) >= 6]
+                if bars:
+                    return bars
+                last = ValueError(f"empty@{host}")
+            except Exception as ex:
+                last = ex
+            time.sleep(0.8 * (k + 1))
+        # 该主机失败，试下一个
+    if last:
+        pass  # 调用方打印
+    return []
