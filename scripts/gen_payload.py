@@ -50,8 +50,10 @@ import sector_update  # noqa: E402
 
 PAY = C.PAYLOAD_DIR
 
-# 沪深300 变体参数（v8.0 定稿，与 hs300_update.py 一致）
-HS300_PARAMS = {"X_UP": 15.0, "Y_DOWN": 14.0, "HOLD_DAYS": 120}
+# 沪深300 变体参数（v9.2：半力只回补到 100% + 强制回补站稳年线 + 熊市 3-of-4 + 底仓 40%）
+HS300_PARAMS = {"X_UP": 15.0, "Y_DOWN": 14.0, "HOLD_DAYS": 120,
+                "BEAR_CORE": 0.4, "CORE_CONFIRM": 10, "OB_FROM_CD": True,
+                "FORCE_MIN_ABOVE_MA": 20, "OS_MIN_COUNT_BEAR": 3, "VAL_HALF_CAP": 1.0}
 
 
 def bj_now() -> str:
@@ -217,7 +219,12 @@ def main() -> None:
     print("[gen_payload] 沪深300（H00300/000300，v8.0 变体）...")
     P = EBT.make_params(**HS300_PARAMS)
     hs300 = run_timing(load_index_df("H00300", "000300"), p=P, label="沪深300")
-    hs300["params"] = {"x_up": P.X_UP, "y_down": P.Y_DOWN, "hold_days": P.HOLD_DAYS}
+    hs300["params"] = {"x_up": P.X_UP, "y_down": P.Y_DOWN, "hold_days": P.HOLD_DAYS,
+                       "bear_core": P.BEAR_CORE, "core_confirm": P.CORE_CONFIRM,
+                       "ob_from_cd": P.OB_FROM_CD,
+                       "force_min_above_ma": P.FORCE_MIN_ABOVE_MA,
+                       "os_min_count_bear": P.OS_MIN_COUNT_BEAR,
+                       "val_half_cap": P.VAL_HALF_CAP}
     _write(f"{PAY}/hs300.json", hs300)
 
     print("[gen_payload] 行业轮动（32 ETF）...")

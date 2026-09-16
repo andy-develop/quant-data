@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""沪深300 择时策略（v8.0）· 每日自动更新
+"""沪深300 择时策略（v9.2）· 每日自动更新
 抓取 H00300(全收益)/000300(价格) 行情 -> 统一回测引擎(backtest/engine.py) 计算信号与净值
 -> 生成 hs300 数据段 -> 与红利低波/行业轮动 carry-forward 合并注入 index.html
 
-口径（v8.0，四态仓位机与红利低波 v7.7 同构，仅 3 参数按沪深300 高波动重标定）：
+口径（v9.2，四态仓位机与红利低波同构 + 年线底仓缩放 + 回补/抄底纪律）：
   信号用价格指数 000300 计算；收益用全收益 H00300；T+1 收盘成交 + 单边滑点 5bp；
-  杠杆部分(125/150%)按年化 7% 按交易日计息；费用单边 max(万1, 5元)。
-  重标定参数（用户定稿 v8.0，v8.1 按策略层审计实测修正 1 项）：
-    X_UP 20→15   （300 波动大，20% 门槛来不及顶部离场）
-    Y_DOWN 14→20 → 回 14（策略层审计 H-4 实测：沪深300 63 日跌幅全样本最差仅 −21.6%、2018 年最差 −17.6%，
-                     20% 阈值全样本仅触发 3 天/2018 年 0 天，参数被数据禁用；14 恢复该成分作用且略优）
-    HOLD_DAYS 60→120（深熊别在坑里强平割肉；审计 H-4：影响 ≤8.4pp，非关键参数，保留定稿值）
-  其余结构件原样保留：J/RSI 阈值、布林、杠杆上限 150%、T+1、滑点 5bp、融资 7%、
-  双门（年线 MA250 + 估值剪刀差分位）、REBUY_DAYS=90、2-of-4 超卖共振、三维超买极值。
+  杠杆部分(>100%)按年化 7% 按交易日计息；费用单边 max(万1, 5元)。
+  参数（相对红利低波默认）：
+    X_UP 20→15 / Y_DOWN 14 / HOLD_DAYS 60→120
+    BEAR_CORE 1.0→0.4 / CORE_CONFIRM 0→10（熊市底仓 40%，10 日确认）
+    FORCE_MIN_ABOVE_MA 0→20（强制回补须站稳年线 20 日，防假突破）
+    OS_MIN_COUNT_BEAR 2→3（熊市超卖改 3-of-4，浅跌不加仓）
+    VAL_HALF_CAP 1.25→1.0（v9.2：估值 50-80% 半力只回补到 100%，≥80% 才允许借钱加杠杆）
+    OB_FROM_CD True（加仓态超买清仓）
+  逻辑：年线上方满仓；跌破年线（确认后）底仓降至 40%，超卖按 25% 步进加仓；
+  极端贪婪清仓，90 日后若已站稳年线则强制回补，否则继续等超卖。
 
 用法: python3 hs300_update.py [--out index.html] [--data-out hs300_data.json] [--dry-run]
 """
@@ -45,8 +47,10 @@ while _ARGS:
 OUT = os.path.join(BASE, _OUT)
 DATA_OUT = os.path.join(BASE, _DATA_OUT)
 
-# ---- 沪深300 变体参数（v8.0 定稿：仅 3 参数重标定，其余与红利低波完全一致）----
-P = E.make_params(X_UP=15.0, Y_DOWN=14.0, HOLD_DAYS=120)   # v8.1：Y_DOWN 20→14（审计 H-4 实测 20 被禁用）
+# ---- 沪深300 变体参数（v9.2：半力只回补 + 强制回补站稳年线 + 熊市 3-of-4 + 底仓 40%）----
+P = E.make_params(X_UP=15.0, Y_DOWN=14.0, HOLD_DAYS=120,
+                  BEAR_CORE=0.4, CORE_CONFIRM=10, OB_FROM_CD=True,
+                  FORCE_MIN_ABOVE_MA=20, OS_MIN_COUNT_BEAR=3, VAL_HALF_CAP=1.0)
 START = E.START                 # 与红利低波同回测窗口 2016-09-08（可比）
 FETCH_START = "20130719"        # 与红利低波同左边界锚定（H00300/000300 该日起有数据）
 ARCHIVE_DIR = os.path.join(BASE, "data")
@@ -219,7 +223,13 @@ def main():
     bt = build_backtest_payload(df, trades, ec, m, os_stat, E.overview_stats(trades, closed, df))
     snap = build_snapshot(df_all, state, pos, legs, t0, trades, os_stat, warnings, cal=trade_day_info(), p=P)
     hs_payload = {"snapshot": snap, "backtest": bt, "params": {"x_up": P.X_UP, "y_down": P.Y_DOWN,
-                                                               "hold_days": P.HOLD_DAYS}}
+                                                               "hold_days": P.HOLD_DAYS,
+                                                               "bear_core": P.BEAR_CORE,
+                                                               "core_confirm": P.CORE_CONFIRM,
+                                                               "ob_from_cd": P.OB_FROM_CD,
+                                                               "force_min_above_ma": P.FORCE_MIN_ABOVE_MA,
+                                                               "os_min_count_bear": P.OS_MIN_COUNT_BEAR,
+                                                               "val_half_cap": P.VAL_HALF_CAP}}
     with open(DATA_OUT, "w", encoding="utf-8") as f:
         json.dump(hs_payload, f, ensure_ascii=False)
     print(f"      {DATA_OUT} ({len(bt['dates'])} 采样点 / {len(trades)} 笔 / {bt['end']})")

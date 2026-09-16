@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""沪深300 择时 · 过拟合体检（策略层审计 H-4/H-9 配套披露，独立于红利低波）
-1) 基线：v8.1 现值（X_UP=15 / Y_DOWN=14 / HOLD_DAYS=120 / MAX_POS=1.5）
-2) 参数敏感性：X_UP / Y_DOWN / HOLD_DAYS / REBUY_DAYS（审计实测扫描区间，页面披露用）
+"""沪深300 择时 · 过拟合体检（v9.2 配套，独立于红利低波）
+1) 基线：v9.2 现值（X_UP=15 / Y_DOWN=14 / HOLD_DAYS=120 / BEAR_CORE=0.4 / CORE_CONFIRM=10
+         / FORCE_MIN_ABOVE_MA=20 / OS_MIN_COUNT_BEAR=3 / VAL_HALF_CAP=1.0）
+2) 参数敏感性：X_UP / Y_DOWN / HOLD_DAYS / REBUY_DAYS / BEAR_CORE / CORE_CONFIRM
+               / FORCE_MIN_ABOVE_MA / OS_MIN_COUNT_BEAR / VAL_HALF_CAP
 3) Walk-forward：2018-2020 / 2021-2023 / 2024-2026 三段固定参数（不在测试段上调参）
-数据源：data/H00300-week-*.json + H00300-incr-*.json 本地归档（rebuild_hl，不联网）
+数据源：优先 parquet（与 gen_payload 一致）；无则回退本地 JSON 归档
 输出: data/hs300-sensitivity.json（确定性，可复现）
 用法: python3 hs300_sensitivity.py
 """
@@ -25,21 +27,32 @@ WF = [
     ("2024-2026", "2024-01-01", None),
 ]
 SENS = {
-    # 审计实测扫描区间（页面披露引用）；baseline 值用 * 标注
-    "X_UP": [10, 15, 20, 25, 35],
-    "Y_DOWN": [8, 10, 12, 14, 16, 20],
-    "HOLD_DAYS": [60, 90, 120, 150],
-    "REBUY_DAYS": [20, 45, 90, 150, 250],
+    "X_UP": [10, 15, 20, 25],
+    "Y_DOWN": [10, 12, 14, 16],
+    "HOLD_DAYS": [60, 90, 120, 9999],
+    "REBUY_DAYS": [45, 90, 180],
+    "BEAR_CORE": [0.3, 0.4, 0.5, 0.6, 1.0],
+    "CORE_CONFIRM": [0, 5, 10, 15],
+    "FORCE_MIN_ABOVE_MA": [0, 10, 20, 30],
+    "OS_MIN_COUNT_BEAR": [2, 3, 4],
+    "VAL_HALF_CAP": [1.0, 1.25, 1.5],
 }
 TMP_TR = "/tmp/hs300-tr.csv"
 TMP_PX = "/tmp/hs300-px.csv"
 
 
 def load_df():
-    """本地归档重建沪深300 全量（date/close=H00300 全收益 / px=000300 价格）。"""
+    """优先 parquet；否则本地归档重建。"""
+    pq_tr = os.path.join(os.path.dirname(BASE), "data", "kline", "index", "H00300.parquet")
+    pq_px = os.path.join(os.path.dirname(BASE), "data", "kline", "index", "000300.parquet")
+    if os.path.exists(pq_tr) and os.path.exists(pq_px):
+        tr = pd.read_parquet(pq_tr)[["date", "close"]]
+        px = pd.read_parquet(pq_px)[["date", "close"]].rename(columns={"close": "px"})
+        df = tr.merge(px, on="date", how="inner").sort_values("date").reset_index(drop=True)
+        return df
     out, base_day = H.rebuild_hl()
     if out is None:
-        raise RuntimeError("本地无 H00300/000300 归档（data/H00300-week-*.json），先跑 hs300_update.py")
+        raise RuntimeError("无 H00300/000300 数据（parquet 或 data/ 归档），先跑 fetch_index / hs300_update")
     tr = {r["tradeDate"]: r["close"] for r in out["H00300"]}
     px = {r["tradeDate"]: r["close"] for r in out["000300"]}
     dates = sorted(set(tr) & set(px))
@@ -55,8 +68,11 @@ def export_csv(df):
 
 
 def run_metrics(start=START, end=None, **over):
-    """基线 = v8.1 现值（H.P）；over 仅覆盖被扫描的单项。"""
-    base = {k: getattr(H.P, k) for k in ("X_UP", "Y_DOWN", "HOLD_DAYS", "REBUY_DAYS")}
+    """基线 = v9.1 现值（H.P）；over 仅覆盖被扫描的单项。"""
+    base = {k: getattr(H.P, k) for k in
+            ("X_UP", "Y_DOWN", "HOLD_DAYS", "REBUY_DAYS", "BEAR_CORE", "BULL_CORE",
+             "CORE_CONFIRM", "CORE_STEP", "MAX_POS", "FORCE_MIN_ABOVE_MA", "OS_MIN_COUNT_BEAR",
+             "OB_FROM_CD", "VAL_HALF_CAP")}
     base.update({k: v for k, v in over.items() if v is not None})
     p = E.make_params(**base)
     r = E.run(TMP_TR, TMP_PX, start=start, end=end, p=p)
@@ -70,10 +86,10 @@ def main():
     export_csv(df)
     print(f"数据: {len(df)} 条 {df['date'].iloc[0].date()} ~ {df['date'].iloc[-1].date()}")
     out = {"baseline": None, "sensitivity": [], "walk_forward": [],
-           "note": "固定参数现算；口径与审计 H-4/H-9 一致（X_UP/Y_DOWN/HOLD_DAYS/REBUY_DAYS 扫描值直接引用审计报告）"}
+           "note": "v9.2 固定参数现算；VAL_HALF_CAP=1.0 为半力只回补纪律"}
     base, _ = run_metrics()
     out["baseline"] = base
-    print(f"基线(v8.1): 总收益{base['total']*100:+.1f}% 夏普{base['sharpe']:.2f} 回撤{base['mdd']*100:.1f}% {base['n_trades']}笔")
+    print(f"基线(v9.2): 总收益{base['total']*100:+.1f}% 夏普{base['sharpe']:.2f} 回撤{base['mdd']*100:.1f}% {base['n_trades']}笔")
     for name, values in SENS.items():
         orig = getattr(P, name)
         for v in values:

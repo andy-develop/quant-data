@@ -1,0 +1,240 @@
+{
+ "baseline": {
+  "total": 2.141,
+  "sharpe": 0.8454,
+  "mdd": -0.2132,
+  "n_trades": 39.0
+ },
+ "sensitivity": [
+  {
+   "param": "X_UP",
+   "value": 10,
+   "total": 1.6261,
+   "sharpe": 0.7526,
+   "mdd": -0.2285,
+   "n_trades": 46.0
+  },
+  {
+   "param": "X_UP",
+   "value": 20,
+   "total": 1.5478,
+   "sharpe": 0.6679,
+   "mdd": -0.3863,
+   "n_trades": 38.0
+  },
+  {
+   "param": "X_UP",
+   "value": 25,
+   "total": 1.5634,
+   "sharpe": 0.6717,
+   "mdd": -0.3863,
+   "n_trades": 38.0
+  },
+  {
+   "param": "Y_DOWN",
+   "value": 10,
+   "total": 2.0662,
+   "sharpe": 0.814,
+   "mdd": -0.2415,
+   "n_trades": 46.0
+  },
+  {
+   "param": "Y_DOWN",
+   "value": 12,
+   "total": 2.1734,
+   "sharpe": 0.8424,
+   "mdd": -0.231,
+   "n_trades": 44.0
+  },
+  {
+   "param": "Y_DOWN",
+   "value": 16,
+   "total": 1.9635,
+   "sharpe": 0.822,
+   "mdd": -0.2419,
+   "n_trades": 36.0
+  },
+  {
+   "param": "HOLD_DAYS",
+   "value": 60,
+   "total": 2.0586,
+   "sharpe": 0.8466,
+   "mdd": -0.2132,
+   "n_trades": 42.0
+  },
+  {
+   "param": "HOLD_DAYS",
+   "value": 90,
+   "total": 1.9996,
+   "sharpe": 0.8218,
+   "mdd": -0.2132,
+   "n_trades": 41.0
+  },
+  {
+   "param": "HOLD_DAYS",
+   "value": 9999,
+   "total": 2.13,
+   "sharpe": 0.842,
+   "mdd": -0.2132,
+   "n_trades": 37.0
+  },
+  {
+   "param": "REBUY_DAYS",
+   "value": 45,
+   "total": 1.31,
+   "sharpe": 0.6111,
+   "mdd": -0.2532,
+   "n_trades": 39.0
+  },
+  {
+   "param": "REBUY_DAYS",
+   "value": 180,
+   "total": 1.426,
+   "sharpe": 0.7144,
+   "mdd": -0.2169,
+   "n_trades": 39.0
+  },
+  {
+   "param": "BEAR_CORE",
+   "value": 0.3,
+   "total": 2.1778,
+   "sharpe": 0.8595,
+   "mdd": -0.2019,
+   "n_trades": 39.0
+  },
+  {
+   "param": "BEAR_CORE",
+   "value": 0.5,
+   "total": 2.1025,
+   "sharpe": 0.8293,
+   "mdd": -0.2248,
+   "n_trades": 39.0
+  },
+  {
+   "param": "BEAR_CORE",
+   "value": 0.6,
+   "total": 2.0623,
+   "sharpe": 0.8114,
+   "mdd": -0.2368,
+   "n_trades": 39.0
+  },
+  {
+   "param": "BEAR_CORE",
+   "value": 1.0,
+   "total": 1.8762,
+   "sharpe": 0.7247,
+   "mdd": -0.3096,
+   "n_trades": 27.0
+  },
+  {
+   "param": "CORE_CONFIRM",
+   "value": 0,
+   "total": 1.6589,
+   "sharpe": 0.7556,
+   "mdd": -0.2133,
+   "n_trades": 58.0
+  },
+  {
+   "param": "CORE_CONFIRM",
+   "value": 5,
+   "total": 1.7582,
+   "sharpe": 0.7746,
+   "mdd": -0.2242,
+   "n_trades": 42.0
+  },
+  {
+   "param": "CORE_CONFIRM",
+   "value": 15,
+   "total": 2.0931,
+   "sharpe": 0.8324,
+   "mdd": -0.2107,
+   "n_trades": 38.0
+  },
+  {
+   "param": "FORCE_MIN_ABOVE_MA",
+   "value": 0,
+   "total": 1.714,
+   "sharpe": 0.7406,
+   "mdd": -0.2902,
+   "n_trades": 44.0
+  },
+  {
+   "param": "FORCE_MIN_ABOVE_MA",
+   "value": 10,
+   "total": 1.7616,
+   "sharpe": 0.7525,
+   "mdd": -0.2902,
+   "n_trades": 43.0
+  },
+  {
+   "param": "FORCE_MIN_ABOVE_MA",
+   "value": 30,
+   "total": 2.141,
+   "sharpe": 0.8454,
+   "mdd": -0.2132,
+   "n_trades": 39.0
+  },
+  {
+   "param": "OS_MIN_COUNT_BEAR",
+   "value": 2,
+   "total": 1.6229,
+   "sharpe": 0.6956,
+   "mdd": -0.2689,
+   "n_trades": 47.0
+  },
+  {
+   "param": "OS_MIN_COUNT_BEAR",
+   "value": 4,
+   "total": 1.127,
+   "sharpe": 0.6784,
+   "mdd": -0.2107,
+   "n_trades": 26.0
+  },
+  {
+   "param": "VAL_HALF_CAP",
+   "value": 1.25,
+   "total": 2.0616,
+   "sharpe": 0.803,
+   "mdd": -0.2164,
+   "n_trades": 41.0
+  },
+  {
+   "param": "VAL_HALF_CAP",
+   "value": 1.5,
+   "total": 2.0521,
+   "sharpe": 0.7901,
+   "mdd": -0.2337,
+   "n_trades": 42.0
+  }
+ ],
+ "walk_forward": [
+  {
+   "period": "2018-2020",
+   "start": "2018-01-01",
+   "end": "2020-12-31",
+   "total": 0.3066,
+   "sharpe": 0.6474,
+   "mdd": -0.2053,
+   "n_trades": 11.0
+  },
+  {
+   "period": "2021-2023",
+   "start": "2021-01-01",
+   "end": "2023-12-29",
+   "total": -0.0185,
+   "sharpe": 0.0179,
+   "mdd": -0.2118,
+   "n_trades": 15.0
+  },
+  {
+   "period": "2024-2026",
+   "start": "2024-01-01",
+   "end": "2026-09-15",
+   "total": 0.9411,
+   "sharpe": 1.607,
+   "mdd": -0.1052,
+   "n_trades": 10.0
+  }
+ ],
+ "note": "v9.2 固定参数现算；VAL_HALF_CAP=1.0 为半力只回补纪律"
+}

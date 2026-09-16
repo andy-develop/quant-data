@@ -297,8 +297,11 @@ def build_snapshot(df, state, pos, legs, t0, trades, os_stat, warnings=None, cal
     hi63_next = max(float(r["hi63"]), px)
     need_dn = max(0.0, (1 - hi63_next * (1 - P.Y_DOWN / 100) / px) * 100)
     hits_os = int((wj < P.J_LOW) + (px <= lower) + (float(r["dn63"]) <= -P.Y_DOWN) + (wrsi < P.RSI_OS))
+    # v9.1：熊市（价<MA250）可用更高命中门槛；与 replay 的 OS_MIN_COUNT_BEAR 对齐（确认日数忽略，仅作展示）
+    os_need_n = int(getattr(P, "OS_MIN_COUNT_BEAR", 2)) if px < float(r["ma250"]) else 2
+    os_executable = bool(r["oversold"]) and hits_os >= os_need_n
     os_gap = {
-        "hits": hits_os, "need": max(0, 2 - hits_os),
+        "hits": hits_os, "need": max(0, os_need_n - hits_os), "need_total": os_need_n,
         "band": {"gap": round(need_band_low, 2), "hit": bool(px <= lower)},
         "dn63": {"gap": round(need_dn, 2), "hit": bool(float(r["dn63"]) <= -P.Y_DOWN)},
         "wj": {"val": round(wj, 2), "hit": bool(wj < P.J_LOW)},
@@ -334,7 +337,7 @@ def build_snapshot(df, state, pos, legs, t0, trades, os_stat, warnings=None, cal
         "wj": round(wj, 2), "wrsi": round(wrsi, 2), "rsi": round(rsi, 2),
         "up63": round(up63, 2), "dn63": round(dn63, 2),
         "state": state, "pos": int(round(pos * 100)),
-        "oversold_now": bool(r["oversold"]), "overbought_now": bool(r["overbought"]),
+        "oversold_now": os_executable, "overbought_now": bool(r["overbought"]),
         "momentum_lost_now": bool(r["momentum_lost"]),
         "os_gap": os_gap,
         "ob_gap": {"need_rise_pct": round(ob_gap, 2),
@@ -360,6 +363,14 @@ def build_snapshot(df, state, pos, legs, t0, trades, os_stat, warnings=None, cal
                   "j_cross_to": P.J_CROSS_TO, "rsi_os": P.RSI_OS,
                   "rsi_cross_from": P.RSI_CROSS_FROM, "rsi_cross_to": P.RSI_CROSS_TO,
                   "x_up": P.X_UP, "y_down": P.Y_DOWN, "hold_days": P.HOLD_DAYS, "rebuy_days": P.REBUY_DAYS,
+                  "bear_core": getattr(P, "BEAR_CORE", 1.0),
+                  "bull_core": getattr(P, "BULL_CORE", 1.0),
+                  "core_confirm": getattr(P, "CORE_CONFIRM", 0),
+                  "core_step": getattr(P, "CORE_STEP", 0.25),
+                  "ob_from_cd": getattr(P, "OB_FROM_CD", False),
+                  "force_min_above_ma": getattr(P, "FORCE_MIN_ABOVE_MA", 0),
+                  "os_min_count_bear": getattr(P, "OS_MIN_COUNT_BEAR", 2),
+                  "val_half_cap": getattr(P, "VAL_HALF_CAP", 1.25),
                   "slippage_bps": P.SLIPPAGE_BPS, "fin_rate": P.FIN_RATE,
                   "val_gate": P.VAL_GATE, "ma250_gate": P.MA250_GATE, "val_win": P.VAL_WIN},
     }

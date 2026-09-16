@@ -31,12 +31,26 @@ Y_ACC = False               # 实验否决：超卖跌幅加"跌幅加速"确认
 DIV_2OF3 = False            # 实验否决：顶背离扩展 RSI+MACD+量价 三选二（回撤恶化至-34.2%，保留代码可复现）
 DELAY_SELL = 1              # 实验否决：动能消失延迟成交（T+3 回撤-32.2%无增益，默认 T+1）
 # ---- v7.11 估值/年线过滤（定稿） ----
-VAL_GATE = True             # 估值剪刀差(股息率代理-10Y国债)分位门: ≥80%正常 / 50-80%半力(禁150档) / <50%超卖信号失效
+VAL_GATE = True             # 估值剪刀差(股息率代理-10Y国债)分位门: ≥80%全力 / 50-80%半力 / <50%超卖信号失效
+VAL_HALF_CAP = 1.25         # 半力仓位上限；红利低波=1.25（仍可加一档杠杆），沪深300 v9.2=1.0（只回补不借钱）
 MA250_GATE = True           # 年线门: 仅 价格<250日均线 时允许超卖信号（年线上方超卖=高位回调不执行）
 WEEK_J0 = False             # 实验否决：周线共振门（wj<0 才允许超卖；"不动"/"半力"两档均降收益，保留代码可复现）
 VAL_WIN = 3                 # 剪刀差滚动分位窗口（年；2y/3y/5y/expanding 实测：3y 收益-回撤平衡且无冷启动问题；5y 冷启动致2016-19段差）
 CN10Y_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cn10y_daily.csv")
 MAX_POS = 1.50
+# ---- v9.0 年线底仓缩放（默认关闭=红利低波零回归；沪深300 变体 BEAR_CORE=0.5）----
+# 审计结论：v8.1「年线下方仍 100% 底仓」在 2021-2023 熊市拖累夏普；
+# 超卖门已要求 px<MA250，故熊市常态满仓与「适度抄底」矛盾——应先降底仓再等冰点加仓。
+BEAR_CORE = 1.0           # 价格在年线下方时的底仓；1.0=不缩放
+BULL_CORE = 1.0           # 价格在年线上方时的底仓
+CORE_CONFIRM = 0          # 年线切换确认交易日数（0=当日切换；5=减少毛刺）
+CORE_STEP = 0.25          # 超卖加仓 / 到期减仓步长
+OB_FROM_CD = False        # C/D 态是否响应超买清仓；沪深300=True（加仓遇极值一并离场）
+# ---- v9.1 强制回补 / 熊市超卖门槛（默认关闭=红利低波零回归；沪深300 变体开启）----
+# 审计：贪婪清仓后「满 REBUY_DAYS 无条件回补」在假突破年线时接飞刀（2023-04）；
+# 熊市 2-of-4 过松，浅跌加仓拖累 2021-2023。沪深300：FORCE_MIN_ABOVE_MA=20 / OS_MIN_COUNT_BEAR=3。
+FORCE_MIN_ABOVE_MA = 0    # 强制回补前需连续站上 MA250 的交易日数；0=不额外要求
+OS_MIN_COUNT_BEAR = 2     # 熊市（年线下方 regime）超卖最少命中数；牛市仍用 2-of-4
 # H-1 修复（策略层审计）：交易日历（engine/trade_calendar.csv，列 trade_date）用于判定
 # "未完成 ISO 周"——df 末日之后若仍有交易日落在同一 ISO 周，则该周未完成。
 _CAL_CSV = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "trade_calendar.csv")
@@ -84,16 +98,18 @@ FIN_RATE = 0.07           # 融资年化 7%（>100% 杠杆部分，按交易日�
 TRADING_DAYS = 252        # 年化基准
 RISK_FREE = 0.0           # 夏普无风险利率
 
-# ---- 参数化（v8.0 沪深300 变体）：默认 = 上方模块常量；变体仅覆盖个别参数 ----
+# ---- 参数化（v8.0/v9.x 沪深300 变体）：默认 = 上方模块常量；变体仅覆盖个别参数 ----
 _PARAM_NAMES = ("HOLD_DAYS", "REBUY_DAYS", "J_LOW", "J_HIGH", "J_CROSS_FROM", "J_CROSS_TO",
                 "RSI_OS", "RSI_CROSS_FROM", "RSI_CROSS_TO", "X_UP", "Y_DOWN", "Y_ACC",
-                "DIV_2OF3", "DELAY_SELL", "VAL_GATE", "MA250_GATE", "WEEK_J0", "VAL_WIN",
-                "MAX_POS", "START", "SLIPPAGE_BPS", "FEE_RATE", "FEE_MIN", "FIN_RATE", "TRADING_DAYS")
+                "DIV_2OF3", "DELAY_SELL", "VAL_GATE", "VAL_HALF_CAP", "MA250_GATE", "WEEK_J0", "VAL_WIN",
+                "MAX_POS", "BEAR_CORE", "BULL_CORE", "CORE_CONFIRM", "CORE_STEP", "OB_FROM_CD",
+                "FORCE_MIN_ABOVE_MA", "OS_MIN_COUNT_BEAR",
+                "START", "SLIPPAGE_BPS", "FEE_RATE", "FEE_MIN", "FIN_RATE", "TRADING_DAYS")
 
 
 def make_params(**overrides):
-    """基于默认参数构造变体参数集（如沪深300：X_UP=15/Y_DOWN=20/HOLD_DAYS=120）。
-    未覆盖项与红利低波完全一致，保证四态仓位机同构。"""
+    """基于默认参数构造变体参数集（如沪深300 v9.2：BEAR_CORE=0.4 / VAL_HALF_CAP=1.0）。
+    未覆盖项与红利低波完全一致；BEAR_CORE=1.0 时年线底仓缩放不生效。"""
     p = {k: globals()[k] for k in _PARAM_NAMES}
     p.update(overrides)
     return types.SimpleNamespace(**p)
@@ -234,13 +250,29 @@ def replay(df, t1=True, start=START, delay_sell=DELAY_SELL, p=None):
     t1=False 时信号当日收盘确认、当日收盘成交（仅用于口径归因实验，主回测恒为 True）。
     delay_sell: 动能消失触发后第 N 个交易日成交（1=T+1 默认；3=延迟到第 3 交易日收盘成交，v7.10 实验）。
     p=None 用默认参数；p=make_params(...) 用于变体（如沪深300）。
-    返回 (trades, legs_closed, positions)：
+
+    v9.0 年线底仓：BEAR_CORE<1 时，价格持续在 MA250 下方则 A 态底仓=BEAR_CORE（默认 1.0 不缩放）；
+    超卖按 CORE_STEP 加仓，动能消失/到期回落到当前 regime 底仓；强制回补也回到底仓。
+    v9.1：FORCE_MIN_ABOVE_MA>0 时，强制回补须连续站上 MA250 达该日数（防假突破接飞刀）；
+    OS_MIN_COUNT_BEAR>2 时，熊市超卖须命中更多 2-of-4 子条件（默认 2=与牛市相同）。
+    v9.2：VAL_HALF_CAP 控制半力上限——A/B/C/D 态一致生效（旧逻辑仅 C/D 限制且写死 1.25，
+    导致 A 态 100%→125% 在估值仅 50-80% 时仍加杠杆；沪深300 取 1.0=只回补不借钱）。
+
+    返回 (trades, legs_closed, positions, state, pos, legs, t0)：
       trades: 每笔 {date, action, px(信号价), fill(成交价含滑点), fee, slippage,
                     pos_before, pos_after, reason, amount}
       legs_closed: 抄底档闭环（FIFO）{buy_date, buy_fill, sell_date, sell_fill, reason, ret}
       positions: 每日目标仓位 Series（长度 = df 中 >= start 的行数）
     """
     P = p or sys.modules[__name__]
+    step = float(getattr(P, "CORE_STEP", 0.25))
+    bear_core = float(getattr(P, "BEAR_CORE", 1.0))
+    bull_core = float(getattr(P, "BULL_CORE", 1.0))
+    confirm = int(getattr(P, "CORE_CONFIRM", 0))
+    ob_from_cd = bool(getattr(P, "OB_FROM_CD", False))
+    force_min_above = int(getattr(P, "FORCE_MIN_ABOVE_MA", 0))
+    os_min_bear = int(getattr(P, "OS_MIN_COUNT_BEAR", 2))
+    half_cap = float(getattr(P, "VAL_HALF_CAP", 1.25))
     trades = []
     legs = []          # [(成交索引, 成交日期, 成交价(含滑点))]
     legs_closed = []
@@ -248,66 +280,183 @@ def replay(df, t1=True, start=START, delay_sell=DELAY_SELL, p=None):
     n_out = int((df["date"] >= start_ts).sum())
     positions = np.zeros(n_out)
     k = 0
-    state, pos = "A", 1.0
+    state, pos = "A", None          # pos 首日按 regime 底仓初始化
     t0 = None          # B 态离场日
     prev = None        # T 日信号
     prev2 = None       # T-1 日信号（连续确认）
-    pend = None        # 动能消失挂起: [确认行索引i, 确认日期] —— 5个交易日内 J 未回 85 才确认卖出
+    pend = None        # 动能消失挂起: [确认行索引i, 确认日期]
+    below_run = above_run = 0
+    regime_bear = None
+
+    def _want_bear(row):
+        ma = row["ma250"] if "ma250" in row.index else np.nan
+        if ma != ma:  # NaN
+            return False
+        return float(row["px"]) < float(ma)
+
+    def _update_regime(row):
+        nonlocal below_run, above_run, regime_bear
+        wb = _want_bear(row)
+        if wb:
+            below_run += 1
+            above_run = 0
+        else:
+            above_run += 1
+            below_run = 0
+        if regime_bear is None:
+            regime_bear = wb
+        elif confirm <= 0:
+            regime_bear = wb
+        else:
+            if wb and below_run >= confirm:
+                regime_bear = True
+            if (not wb) and above_run >= confirm:
+                regime_bear = False
+
+    def _core():
+        return bear_core if regime_bear else bull_core
+
+    def _state_for(new_pos, core):
+        if new_pos <= 1e-9:
+            return "B"
+        if new_pos <= core + 1e-9:
+            return "A"
+        # 杠杆上沿（≥125% 且接近 MAX）标 D，其余加仓标 C——与旧四态文案兼容
+        if new_pos >= min(1.25, P.MAX_POS) - 1e-9 and new_pos >= P.MAX_POS - 1e-9:
+            return "D"
+        if new_pos >= min(1.50, P.MAX_POS) - 1e-9:
+            return "D"
+        return "C"
+
+    def _os_count(row):
+        """2-of-4 子条件命中数（与 build_signals 超卖定义一致，不含估值/年线门）。"""
+        c = float(row["px"])
+        return (int(float(row["wj"]) < P.J_LOW)
+                + int(c <= float(row["lower"]))
+                + int(float(row["dn63"]) <= -P.Y_DOWN)
+                + int(float(row["wrsi"]) < P.RSI_OS))
+
+    def _osig_ok(row):
+        """超卖是否可执行：先过 build_signals 门，熊市再抬高命中数。"""
+        if not bool(row["oversold"]):
+            return False
+        need = os_min_bear if regime_bear else 2
+        return _os_count(row) >= need
+
     for i in range(len(df)):
         r = df.iloc[i]
         d = r["date"]
-        if d < start_ts:                # START 之前仅推进 prev/prev2（warm-up 信号），不参与撮合
+        if d < start_ts:                # START 之前仅推进 prev/regime（warm-up），不参与撮合
+            _update_regime(r)
             prev2, prev = prev, r
             continue
+        _update_regime(r)
+        core = _core()
+        if pos is None:
+            pos = core
         osig = obsig = lost = False
         if t1:
             if prev is not None:                      # T 日收盘确认的信号
-                osig = bool(prev["oversold"]); obsig = bool(prev["overbought"])
+                osig = _osig_ok(prev); obsig = bool(prev["overbought"])
                 lost = bool(prev["momentum_lost"])
         else:
-            osig = bool(r["oversold"]); obsig = bool(r["overbought"]); lost = bool(r["momentum_lost"])
+            osig = _osig_ok(r); obsig = bool(r["overbought"]); lost = bool(r["momentum_lost"])
         act = None
-        # H-6 修复（策略层审计）：仓位档位由 P.MAX_POS 派生，消除硬编码——
-        # 原 1.25/1.5/1.0 为字面量，MAX_POS 是无人引用的死参数（MAX_POS=1.0 无法关闭杠杆且静默失效）。
-        c_pos = min(1.25, P.MAX_POS)          # C 档（A→C / B→C 回补）
-        d_pos = min(1.50, P.MAX_POS)          # D 档（C→D 二次加仓）
-        if state == "A":
-            if osig: act = ("buy", c_pos, "C", "情绪极值超卖共振·加仓至125%")
-            elif obsig: act = ("sell", 0.0, "B", "超买极值共振·清仓离场")
+        # H-6：仓位档位由 MAX_POS / CORE_STEP / 当前底仓派生
+        if state == "A" and not legs and abs(pos - core) > 1e-6:
+            # 年线切换：无临时仓时把底仓对齐到当前 regime（BEAR_CORE=1 时不触发）
+            act = (("buy" if core > pos else "sell"), core, "A",
+                   f"年线切换·底仓调至{int(round(core * 100))}%")
+        def _half(prev_row):
+            return P.VAL_GATE and prev_row is not None and bool(prev_row["os_half"])
+
+        if act is None and state == "A":
+            if osig:
+                # 熊市底仓：首次超卖先回到满仓（或 +step 若已≥100%），再按步进加杠杆
+                if pos < 1.0 - 1e-9:
+                    new_pos = min(1.0, P.MAX_POS)
+                else:
+                    new_pos = min(pos + step, P.MAX_POS)
+                # v9.2：半力在 A 态也生效——估值未到全力分位时不得超过 VAL_HALF_CAP
+                if _half(prev) and new_pos > half_cap + 1e-9:
+                    if pos < min(1.0, half_cap) - 1e-9:
+                        new_pos = min(1.0, half_cap, P.MAX_POS)
+                    else:
+                        new_pos = pos
+                if new_pos > pos + 1e-9:
+                    act = ("buy", new_pos, _state_for(new_pos, core),
+                           f"情绪极值超卖共振·加仓至{int(round(new_pos * 100))}%")
+            elif obsig:
+                act = ("sell", 0.0, "B", "超买极值共振·清仓离场")
         elif state == "B":
-            if osig: act = ("buy", c_pos, "C", "离场中现超卖共振·回补并加仓至125%")
+            if osig:
+                # 空仓遇超卖：回补到满仓（熊市也先回到 100% 再谈加杠杆）
+                new_pos = min(max(1.0, core + step), P.MAX_POS)
+                if _half(prev):
+                    new_pos = min(new_pos, half_cap)
+                act = ("buy", new_pos, _state_for(new_pos, core),
+                       f"离场中现超卖共振·回补并加仓至{int(round(new_pos * 100))}%")
             elif t0 is not None and d >= t0 + datetime.timedelta(days=P.REBUY_DAYS):
-                act = ("buy", 1.0, "A", "离场满90自然日·强制回补至100%")
+                # v9.1：强制回补须年线上方站稳 FORCE_MIN_ABOVE_MA 日（0=不额外要求）
+                if force_min_above > 0 and above_run < force_min_above:
+                    pass
+                else:
+                    act = ("buy", core, "A",
+                           f"离场满{int(P.REBUY_DAYS)}自然日·强制回补至{int(round(core * 100))}%")
         elif state in ("C", "D"):
-            # v7.11 估值"半力"：分位 50-80% 时禁止第二档加仓至 150%
-            half = P.VAL_GATE and prev is not None and bool(prev["os_half"])
-            if state == "C" and osig and pos < P.MAX_POS - 1e-9 and not half:
-                act = ("buy", d_pos, "D", "再次超卖共振·加仓至150%")
+            # v7.11/v9.2 估值"半力"：分位 50-80% 时禁止加仓越过 VAL_HALF_CAP
+            if osig and pos < P.MAX_POS - 1e-9:
+                new_pos = min(pos + step, P.MAX_POS)
+                if not (_half(prev) and new_pos > half_cap + 1e-9):
+                    act = ("buy", new_pos, _state_for(new_pos, core),
+                           f"再次超卖共振·加仓至{int(round(new_pos * 100))}%")
             lost_now = prev is not None and bool(prev["momentum_lost"])
             if lost_now and pend is None:
                 pend = [i - 1, d]          # 记录确认日 T（prev 行索引 i-1）
             if pend is not None and i - pend[0] >= delay_sell:
-                act = ("sell", 1.0, "A", "动能消失·了结临时仓回100%")
+                act = ("sell", core, "A",
+                       f"动能消失·了结临时仓回{int(round(core * 100))}%")
                 pend = None
             if act is None and legs and d >= legs[0][1] + datetime.timedelta(days=P.HOLD_DAYS):
-                np_ = pos - 0.25
-                act = ("sell", np_, "C" if np_ > 1.0 + 1e-9 else "A", f"加仓满{int(P.HOLD_DAYS)}自然日·卖出一档临时仓")
-        # 期初建仓：回测起点首日直接 0 -> 100（无信号，T+1 框架下首日即持仓）
+                new_pos = max(pos - step, core)
+                act = ("sell", new_pos, _state_for(new_pos, core),
+                       f"加仓满{int(P.HOLD_DAYS)}自然日·卖出一档临时仓")
+            # v9：加仓态也可超买清仓（沪深300）；红利低波默认关闭以保持零回归
+            if act is None and obsig and ob_from_cd:
+                act = ("sell", 0.0, "B", "超买极值共振·清仓离场")
+        # 期初建仓：回测起点首日按 regime 底仓建仓
         if k == 0 and len(trades) == 0:
-            act = ("buy", 1.0, "A", "期初建底仓·满仓100%")
+            act = ("buy", core, "A",
+                   f"期初建底仓·{int(round(core * 100))}%")
         if act:
-            new_pos, new_state = act[1], act[2]
+            new_pos, new_state = float(act[1]), act[2]
             px_ = float(r["px"])
             fill = px_ * (1 + P.SLIPPAGE_BPS / 1e4) if act[0] == "buy" else px_ * (1 - P.SLIPPAGE_BPS / 1e4)
             trades.append({"date": d.strftime("%Y-%m-%d"), "action": "买入" if act[0] == "buy" else "卖出",
                            "px": round(px_, 2), "fill": round(fill, 2), "reason": act[3],
                            "pos_before": int(round(pos * 100)), "pos_after": int(round(new_pos * 100))})
+            # 临时仓：仅 >100% 的杠杆加仓记账（与 v8 一致；50%→100% 由动能消失/年线切换回落）
             if act[0] == "buy" and new_pos > 1.0 + 1e-9 and new_pos > pos + 1e-9:
                 legs.append((i, d, fill))
             if act[0] == "sell":
-                n_legs = int(round((pos - new_pos) / 0.25))
+                if new_pos <= 1e-9:
+                    n_legs = len(legs)
+                else:
+                    # 回到 ≤100% 时清空全部杠杆腿；否则按步长剥一档
+                    if new_pos <= 1.0 + 1e-9:
+                        n_legs = len(legs)
+                    else:
+                        n_legs = int(round((pos - new_pos) / step))
+                        n_legs = max(0, min(n_legs, len(legs)))
                 for _ in range(n_legs):
                     if legs:
+                        b_i, b_d, b_f = legs.pop(0)
+                        legs_closed.append({"buy_date": b_d.strftime("%Y-%m-%d"), "buy_fill": round(b_f, 2),
+                                            "sell_date": d.strftime("%Y-%m-%d"), "sell_fill": round(fill, 2),
+                                            "reason": act[3],
+                                            "ret": round((fill - b_f) / b_f * 100, 2)})
+                if new_pos <= 1e-9:
+                    while legs:
                         b_i, b_d, b_f = legs.pop(0)
                         legs_closed.append({"buy_date": b_d.strftime("%Y-%m-%d"), "buy_fill": round(b_f, 2),
                                             "sell_date": d.strftime("%Y-%m-%d"), "sell_fill": round(fill, 2),

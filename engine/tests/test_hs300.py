@@ -26,8 +26,10 @@ TR = os.path.join(BACKTEST, "h20269_daily.csv")
 PX = os.path.join(BACKTEST, "h30269_daily.csv")
 PARAM_NAMES = ("HOLD_DAYS", "REBUY_DAYS", "J_LOW", "J_HIGH", "J_CROSS_FROM", "J_CROSS_TO",
                "RSI_OS", "RSI_CROSS_FROM", "RSI_CROSS_TO", "X_UP", "Y_DOWN", "Y_ACC",
-               "DIV_2OF3", "DELAY_SELL", "VAL_GATE", "MA250_GATE", "WEEK_J0", "VAL_WIN",
-               "MAX_POS", "START", "SLIPPAGE_BPS", "FEE_RATE", "FEE_MIN", "FIN_RATE", "TRADING_DAYS")
+               "DIV_2OF3", "DELAY_SELL", "VAL_GATE", "VAL_HALF_CAP", "MA250_GATE", "WEEK_J0", "VAL_WIN",
+               "MAX_POS", "BEAR_CORE", "BULL_CORE", "CORE_CONFIRM", "CORE_STEP", "OB_FROM_CD",
+               "FORCE_MIN_ABOVE_MA", "OS_MIN_COUNT_BEAR",
+               "START", "SLIPPAGE_BPS", "FEE_RATE", "FEE_MIN", "FIN_RATE", "TRADING_DAYS")
 
 
 class TestMakeParams(unittest.TestCase):
@@ -47,9 +49,27 @@ class TestMakeParams(unittest.TestCase):
         self.assertEqual(P.J_HIGH, 95.0)
         self.assertEqual(P.RSI_OS, 35.0)
         self.assertEqual(P.MAX_POS, 1.5)
+        self.assertEqual(P.BEAR_CORE, 1.0)       # 默认不缩放
+        self.assertEqual(P.CORE_CONFIRM, 0)
         self.assertEqual(P.SLIPPAGE_BPS, 5)
         self.assertEqual(P.FIN_RATE, 0.07)
         self.assertTrue(P.VAL_GATE and P.MA250_GATE)
+
+    def test_hs300_v9_bear_core_override(self):
+        P = E.make_params(X_UP=15.0, Y_DOWN=14.0, HOLD_DAYS=120, BEAR_CORE=0.4, CORE_CONFIRM=10,
+                          FORCE_MIN_ABOVE_MA=20, OS_MIN_COUNT_BEAR=3, VAL_HALF_CAP=1.0)
+        self.assertEqual(P.BEAR_CORE, 0.4)
+        self.assertEqual(P.CORE_CONFIRM, 10)
+        self.assertEqual(P.FORCE_MIN_ABOVE_MA, 20)
+        self.assertEqual(P.OS_MIN_COUNT_BEAR, 3)
+        self.assertEqual(P.VAL_HALF_CAP, 1.0)
+        self.assertEqual(P.BULL_CORE, 1.0)
+        self.assertEqual(P.CORE_STEP, 0.25)
+        # 默认路径零回归
+        D = E.make_params()
+        self.assertEqual(D.FORCE_MIN_ABOVE_MA, 0)
+        self.assertEqual(D.OS_MIN_COUNT_BEAR, 2)
+        self.assertEqual(D.VAL_HALF_CAP, 1.25)
 
 
 class TestParametrizedSignals(unittest.TestCase):
@@ -149,7 +169,61 @@ class TestHs300Update(unittest.TestCase):
         # v8.1（策略层审计 H-4）：Y_DOWN 20→14——20% 阈值在沪深300 全样本仅触发 3 天（2018 年 0 天），被数据禁用
         self.assertEqual(hs300_update.P.Y_DOWN, 14.0)
         self.assertEqual(hs300_update.P.HOLD_DAYS, 120)
+        # v9.2：年线下方底仓 40% + 10 日确认 + 强制回补站稳年线 + 熊市 3-of-4 + 半力只回补
+        self.assertEqual(hs300_update.P.BEAR_CORE, 0.4)
+        self.assertEqual(hs300_update.P.CORE_CONFIRM, 10)
+        self.assertEqual(hs300_update.P.FORCE_MIN_ABOVE_MA, 20)
+        self.assertEqual(hs300_update.P.OS_MIN_COUNT_BEAR, 3)
+        self.assertEqual(hs300_update.P.VAL_HALF_CAP, 1.0)
+        self.assertTrue(hs300_update.P.OB_FROM_CD)
         self.assertEqual(hs300_update.START, E.START)   # 与红利低波同窗口
+
+    def test_val_half_cap_blocks_shallow_leverage(self):
+        """v9.2：VAL_HALF_CAP=1.0 时，半力区间不应出现 >100% 仓位；默认 1.25 仍可到 125%。"""
+        df = E.build_signals(E.get_prices(TR, PX))
+        base = dict(X_UP=15.0, Y_DOWN=14.0, HOLD_DAYS=120, BEAR_CORE=0.4, CORE_CONFIRM=10,
+                    FORCE_MIN_ABOVE_MA=20, OS_MIN_COUNT_BEAR=3, OB_FROM_CD=True)
+        _, _, pos_old, *_ = E.replay(df, p=E.make_params(**base, VAL_HALF_CAP=1.25))
+        _, _, pos_new, *_ = E.replay(df, p=E.make_params(**base, VAL_HALF_CAP=1.0))
+        pos_old, pos_new = np.asarray(pos_old), np.asarray(pos_new)
+        # 新规则：半力日不得借钱——整体杠杆占用应≤旧规则（允许全力日仍到 150%）
+        self.assertLessEqual(float((pos_new > 1.0 + 1e-9).mean()),
+                             float((pos_old > 1.0 + 1e-9).mean()) + 1e-12)
+        # 且新规则仍可能在估值≥80% 时加杠杆（否则策略退化）
+        self.assertTrue(np.any(pos_new > 1.0 + 1e-9), "全力估值日仍应允许杠杆加仓")
+
+    def test_force_min_above_ma_defers_rebuy(self):
+        """FORCE_MIN_ABOVE_MA>0 时，满 REBUY_DAYS 但未站稳年线不应强制回补。"""
+        df = E.build_signals(E.get_prices(TR, PX))
+        base = dict(X_UP=15.0, Y_DOWN=14.0, HOLD_DAYS=120, BEAR_CORE=0.5, CORE_CONFIRM=0,
+                    OB_FROM_CD=True, REBUY_DAYS=90)
+        t0, *_ = E.replay(df, p=E.make_params(**base, FORCE_MIN_ABOVE_MA=0))
+        t1, *_ = E.replay(df, p=E.make_params(**base, FORCE_MIN_ABOVE_MA=20))
+        n0 = sum(1 for t in t0 if "强制回补" in t["reason"])
+        n1 = sum(1 for t in t1 if "强制回补" in t["reason"])
+        self.assertGreaterEqual(n0, n1, "抬高 FORCE_MIN_ABOVE_MA 后强制回补次数应≤默认")
+
+    def test_os_min_count_bear_reduces_adds(self):
+        """OS_MIN_COUNT_BEAR=3 时熊市超卖加仓次数应≤ 2-of-4。"""
+        df = E.build_signals(E.get_prices(TR, PX))
+        base = dict(X_UP=15.0, Y_DOWN=14.0, HOLD_DAYS=120, BEAR_CORE=0.5, CORE_CONFIRM=0)
+        t0, *_ = E.replay(df, p=E.make_params(**base, OS_MIN_COUNT_BEAR=2))
+        t1, *_ = E.replay(df, p=E.make_params(**base, OS_MIN_COUNT_BEAR=3))
+        a0 = sum(1 for t in t0 if t["action"] == "买入" and "超卖" in t["reason"])
+        a1 = sum(1 for t in t1 if t["action"] == "买入" and "超卖" in t["reason"])
+        self.assertLessEqual(a1, a0)
+
+    def test_bear_core_scales_base_position(self):
+        """v9：BEAR_CORE=0.4 时仓位序列应出现 40% 底仓；BEAR_CORE=1.0 时非空仓位 ≥100%。"""
+        df = E.build_signals(E.get_prices(TR, PX))
+        base = dict(X_UP=15.0, Y_DOWN=14.0, HOLD_DAYS=120, CORE_CONFIRM=0)
+        _, _, pos0, *_ = E.replay(df, p=E.make_params(**base, BEAR_CORE=1.0))
+        _, _, pos1, *_ = E.replay(df, p=E.make_params(**base, BEAR_CORE=0.4))
+        pos0, pos1 = np.asarray(pos0), np.asarray(pos1)
+        self.assertTrue(np.any(np.isclose(pos1, 0.4)), "熊市底仓缩放应出现 40% 仓位")
+        nonzero0 = pos0[pos0 > 1e-9]
+        self.assertTrue(len(nonzero0) == 0 or nonzero0.min() >= 1.0 - 1e-9,
+                        "BEAR_CORE=1.0 时非空仓位不应低于 100%")
 
 
 if __name__ == "__main__":
