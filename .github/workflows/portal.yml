@@ -11,7 +11,8 @@ name: Portal Pipeline (12:00 Beijing)
 #   - 择时回测：同上指数 + 常用标的 hfq → timing_db.json（缺则 fetch 补取）
 # 口径：A股日K 15:00 收盘后才产生完整 bar -> 策略信号基于 T-1 完整收盘；
 # "当天上午结果"= 11:30 实时快照（morning 段，T-1 信号 + 上午实时双轨展示）。
-# 16:35 的 mirror 任务会把今日完整收盘 K 线镜像入库，本任务增量多为 no-op（幂等）。
+# 16:35 的 mirror 任务会把今日完整收盘 K 线镜像入库，并重建 weather/timing_db；
+# 本任务增量多为 no-op（幂等），午间再编门户并发布。
 
 on:
   schedule:
@@ -102,15 +103,20 @@ jobs:
           npm install -g @aweray/hsk-cli >/dev/null 2>&1
           export PATH="$PATH:$(npm prefix -g)/bin"
           hsk-cli api-key set --scene file_hosting --key "$HSK_API_KEY" >/dev/null 2>&1
-          # 无变化跳过发布：data_date（hl|sector|hs300）+ 归一化内容指纹与已发布版本一致时跳过
+          # 无变化跳过发布：三端 data_date + 大盘天气/择时回测 data_date + 归一化内容指纹
           NEED_PUBLISH=$(python3 - <<'EOF'
           import json, os, re, hashlib
           raw = open("index.html", "rb").read()
+          text = raw.decode("utf-8", "ignore")
           norm = re.sub(rb'"generated_at"\s*:\s*"[^"]*"', b'"generated_at":""', raw)
           sha = hashlib.sha256(norm).hexdigest()
           m = re.search(rb'<script id="PAYLOAD" type="application/json">(.*?)</script>', raw, re.S)
           payload = json.loads(m.group(1)) if m else {}
-          dd = f"{payload.get('snapshot', {}).get('data_date')}|{payload.get('sector', {}).get('data_date')}|{payload.get('hs300', {}).get('snapshot', {}).get('data_date')}"
+          wm = re.search(r'var WEATHER = (\{.*?\});', text, re.S)
+          tm = re.search(r'var TIMING_DB = (\{.*?\});', text, re.S)
+          wdd = json.loads(wm.group(1)).get("data_date") if wm else None
+          tdd = json.loads(tm.group(1)).get("data_date") if tm else None
+          dd = f"{payload.get('snapshot', {}).get('data_date')}|{payload.get('sector', {}).get('data_date')}|{payload.get('hs300', {}).get('snapshot', {}).get('data_date')}|{wdd}|{tdd}"
           print("本次构建 data_date:", dd, "/ content_sha:", sha[:12])
           skip = False
           if os.path.exists("../data/hsk-resource.json"):
@@ -146,14 +152,19 @@ jobs:
           rec = {}
           if um: rec["url"] = um.group(1) if um.lastindex else um.group(0).rstrip('",)}')
           if rid: rec["resource_id"] = rid.group(1)
-          payload = json.loads(re.search(r'<script id="PAYLOAD" type="application/json">(.*?)</script>', open("index.html", encoding="utf-8").read(), re.S).group(1))
-          rec["data_date"] = f"{payload.get('snapshot', {}).get('data_date')}|{payload.get('sector', {}).get('data_date')}|{payload.get('hs300', {}).get('snapshot', {}).get('data_date')}"
+          html = open("index.html", encoding="utf-8").read()
+          payload = json.loads(re.search(r'<script id="PAYLOAD" type="application/json">(.*?)</script>', html, re.S).group(1))
+          wm = re.search(r'var WEATHER = (\{.*?\});', html, re.S)
+          tm = re.search(r'var TIMING_DB = (\{.*?\});', html, re.S)
+          wdd = json.loads(wm.group(1)).get("data_date") if wm else None
+          tdd = json.loads(tm.group(1)).get("data_date") if tm else None
+          rec["data_date"] = f"{payload.get('snapshot', {}).get('data_date')}|{payload.get('sector', {}).get('data_date')}|{payload.get('hs300', {}).get('snapshot', {}).get('data_date')}|{wdd}|{tdd}"
           rec["content_sha"] = hashlib.sha256(re.sub(rb'"generated_at"\s*:\s*"[^"]*"', b'"generated_at":""', open("index.html", "rb").read())).hexdigest()
           if not rec.get("url") or not rec.get("resource_id"):
               raise SystemExit(f"无法从 hsk-cli 输出解析资源 URL/ID: {out[:400]}")
           if os.path.exists("../data/hsk-resource.json"):
               old = json.load(open("../data/hsk-resource.json", encoding="utf-8"))
-              if old.get("url") == rec.get("url") and old.get("resource_id") == rec.get("resource_id"):
+              if old.get("url") == rec.get("url") and old.get("resource_id") == rec.get("resource_id") and old.get("data_date") == rec.get("data_date") and old.get("content_sha") == rec.get("content_sha"):
                   print("资源未变化:", rec.get("url"))
                   raise SystemExit(0)
           json.dump(rec, open("../data/hsk-resource.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)

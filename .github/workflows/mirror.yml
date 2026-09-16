@@ -2,7 +2,11 @@ name: Mirror Close Data (16:35 Beijing)
 
 # 收盘数据镜像：工作日 16:35（收盘 15:00 后 1.5h）把当日完整收盘 K 线入库，
 # 供次日 12:00 门户流水线直接使用（T-1 完整收盘口径）。
-#   fetch_index(当日完整收盘) -> fetch_etf -> housekeeping(3y/13y 滚动保留) -> commit
+#   fetch_index(当日完整收盘，含大盘天气 5 锚定指数；CSI 收盘后才有当日 bar)
+#   -> fetch_etf -> fetch_stock
+#   -> housekeeping(3y/13y 滚动保留)
+#   -> build_weather + build_timing_db（收盘后重建，避免 CSI 滞后导致天气载荷混日）
+#   -> commit
 # 节假日自动空转：无新增则跳过 commit，不产生噪音提交。
 
 on:
@@ -79,6 +83,15 @@ jobs:
           else
             python3 scripts/housekeeping.py
           fi
+
+      - name: Build weather payload (four-layer market weather)
+        # 收盘后 CSI(000300/932000) 已发布当日值；重建 weather.json，避免仅腾讯通道先行时混日。
+        # 失败不阻断镜像：沿用已入库 weather.json，由次日 portal 再试。
+        run: python3 scripts/build_weather.py || echo "::warning::weather 构建失败，沿用现有 weather.json"
+
+      - name: Build timing_db (择时回测 K 线包)
+        # 依赖上方 fetch_index + fetch_stock；缺标的时脚本内会单股补取。
+        run: python3 scripts/build_timing_db.py || echo "::warning::timing_db 构建失败，沿用现有 timing_db.json"
 
       - name: Commit increments
         run: |

@@ -74,3 +74,4 @@
 {"event": "fetch_etf", "at": "2026-09-15 21:49"}
 {"event": "fetch_stock", "at": "2026-09-15 21:52", "batch": 4, "fq": 121, "ok": 4, "fail": 121, "sec": 146, "end": "2026-09-15"}
 {"event": "housekeeping", "at": "2026-09-15 21:52", "data_mb": 184.1}
+{"event": "build_weather", "at": "2026-09-16 08:47", "indices": ["000001", "000300", "399001", "399006", "932000"], "size_kb": 822.9}
