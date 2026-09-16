@@ -5,7 +5,10 @@
 
 ## 1. 项目概述
 
-一个 GitHub 私有仓库（`andy-develop/quant-data`）承载全部代码与数据，服务一个**三合一量化门户**（当前 URL 以 `data/hsk-resource.json` 为准，HSK 更新禁用会导致 URL 漂移）：
+一个 GitHub 公开仓库（`andy-develop/quant-data`）承载全部代码与数据，服务一个**三合一量化门户**，**双通道发布**：
+
+- **花生壳 HSK**：当前 URL 以 `data/hsk-resource.json` 为准（HSK 更新禁用会导致 URL 漂移）
+- **GitHub Pages**：固定 `https://andy-develop.github.io/quant-data/`（以 `data/pages-resource.json` 为准）
 
 - **ETF 策略**（原 red-dividend-strategy）：红利低波（四态仓位机 v7.12+）、沪深300 择时（v8.0 变体）、行业轮动（v1.1，21 行业 × 32 ETF）
 - **短线策略 / 个性化选股**（原 stock-factor-engine）：股票动量/波动因子（DuckDB 因子层）→ 选股列表
@@ -59,7 +62,7 @@ quant-data/
 
 ## 4. 双 GHA 任务（满足"12:00 更新、14:00 前出结果"）
 
-1. **portal.yml**（`0 4 * * 1-5` UTC = 北京 12:00，75min timeout）：ensure_calendar → **refresh_cn10y（软）** → fetch_index → fetch_etf(PREFER_TX=1) → fetch_stock（`|| warn` 非阻断）→ fetch_snapshot（不阻断）→ build_factors → gen_payload → build_weather → build_timing_db → **check_health** → build_portal → commit（含 cn10y/日历）→ **HSK 发布** → verify 线上 data_date。
+1. **portal.yml**（`0 4 * * 1-5` UTC = 北京 12:00，75min timeout）：ensure_calendar → **refresh_cn10y（软）** → fetch_index → fetch_etf(PREFER_TX=1) → fetch_stock（`|| warn` 非阻断）→ fetch_snapshot（不阻断）→ build_factors → gen_payload → build_weather → build_timing_db → **check_health** → build_portal → commit（含 cn10y/日历）→ **HSK 发布 + verify** → **GitHub Pages 上传 artifact → deploy-pages + verify**。
 2. **mirror.yml**（`35 8 * * 1-5` UTC = 北京 16:35，120min）：ensure_calendar → **refresh_cn10y（软）** → fetch_index → fetch_etf → fetch_stock → housekeeping → build_weather/timing_db → **check_health --stock-coverage** → commit（含 cn10y/日历）。
 
 ## 5. 关键实现与踩坑记录
@@ -68,8 +71,10 @@ quant-data/
 - **fetch_index 多通道**：CSI index-perf 主通道；价格指数断源时 **东财 push2his**（H30269/000300/932000）→ **腾讯**（000300）；全收益 H20269/H00300 无等价源。腾讯盘中 bar 按 `last_complete_day` 清洗。
 - **fetch_etf**：东财主 / 腾讯兜底；`PREFER_TX=1`（CI）时腾讯失败会**回退东财**，避免单通道假绿。
 - **gen_payload 引擎加载**：`sys.path.insert(0, engine)` 再插 `engine/backtest`，用 `EBT.__file__` 断言防顶层 engine.py 遮蔽（engine/ 下无顶层 engine.py，检查保留为防御）。
-- **发布**：HSK 文件托管，`data/hsk-resource.json` 持久化资源（url=https://hci3bx.gicf.fun，resource_id=1789445817900755204）；无变化跳过；403 11301002 自动创建新资源。secrets：`HSK_API_KEY`。
-- **⚠️ HSK URL 漂移**：HSK 的 update function 已被禁用（403 11301002），内容有变化时必须建新资源 → URL 会漂移（2026-09-15 已从 jjhujm.gicf.fun 变为 hci3bx.gicf.fun）。旧资源仍可访问但内容冻结。验证步骤以 `data/hsk-resource.json` 的最新 URL 为准。
+- **发布（双通道）**：
+  - **HSK** 文件托管：`data/hsk-resource.json` 持久化（url 可能漂移）；无变化跳过；403 11301002 自动创建新资源。secrets：`HSK_API_KEY`。
+  - **GitHub Pages**：Actions 部署 `_site/`（`index.html` + `echarts.min.js` + `.nojekyll`），固定 URL `https://andy-develop.github.io/quant-data/`；记录在 `data/pages-resource.json`。两端均做 data_date verify。
+- **⚠️ HSK URL 漂移**：HSK 的 update function 已被禁用（403 11301002），内容有变化时必须建新资源 → URL 会漂移。旧资源仍可访问但内容冻结。验证以 `data/hsk-resource.json` 为准；**Pages URL 不漂移**，可作为稳定入口。
 - **ECharts 必须本地化**（jsdelivr CDN 在 WebView 挂起 60s 超时）；隐藏容器（offsetWidth=0）初始化图表失败 → 懒初始化。
 - **红涨/绿涨语义隔离**：ETF 红涨、股票引擎绿涨（`.pzone` 作用域隔离 CSS 变量）。
 - **天气视图注入链路**：`weather_tab.html` 含 `var WEATHER = /*__WEATHER__*/{};` 注入点 → build_portal.py 先 `replace("/*__WEATHER__*/{}", weather_json)`，整体片段再替换 template 的天气视图占位注释 → index.html。weather.json 缺失时降级为缺失提示（不报错）。双占位符残留校验含 `__WEATHER__`。

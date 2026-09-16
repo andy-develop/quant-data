@@ -4,7 +4,9 @@ name: Portal Pipeline (12:00 Beijing)
 #   fetch_index(截至 T-1 完整收盘，含大盘天气 5 锚定指数) -> fetch_etf -> fetch_stock
 #   -> fetch_snapshot(11:30) -> build_factors -> gen_payload(hl/hs300/sector/stock/morning)
 #   -> build_weather(weather.json) -> build_timing_db(timing_db.json 择时回测 K 线包)
-#   -> build_portal(index.html) -> 提交 data 增量 -> 发布 HSK 文件托管
+#   -> build_portal(index.html) -> 提交 data 增量
+#   -> 双通道发布：HSK 文件托管 + GitHub Pages
+#   -> 分别 verify 两端 data_date
 #
 # 大盘天气数据口径：
 #   - 天气总览：kline/index/{000001,399001,000300,399006,932000} → weather.json
@@ -23,6 +25,8 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 concurrency:
   # 与 mirror 共用，避免两边同时 commit weather/timing_db 导致 rebase 冲突
@@ -147,7 +151,7 @@ jobs:
           print("YES" if skip else "NO")
           EOF
           )
-          if [ "$(echo "$NEED_PUBLISH" | tail -1)" = "YES" ]; then echo "跳过发布"; exit 0; fi
+          if [ "$(echo "$NEED_PUBLISH" | tail -1)" = "YES" ]; then echo "跳过 HSK 发布"; exit 0; fi
           # 复用已持久化的资源（首次运行且未配 HSK_RESOURCE_ID 时自动创建新资源）
           RES_ID="${HSK_RESOURCE_ID:-}"
           if [ -f ../data/hsk-resource.json ]; then
@@ -197,56 +201,158 @@ jobs:
           HSK_API_KEY: ${{ secrets.HSK_API_KEY }}
           HSK_RESOURCE_ID: ${{ secrets.HSK_RESOURCE_ID }}
 
-      - name: Verify published page is the new build
-        # 发布后验证：线上 PAYLOAD 的 data_date（hl/sector/hs300）必须与本地一致，否则红
+      - name: Verify HSK published page
+        # 发布后验证：HSK 线上 PAYLOAD / WEATHER / TIMING_DB 的 data_date 必须与本地一致
         run: |
           python3 - <<'EOF'
           import json, os, re, urllib.request
+
+          def verify(url, label, local_html):
+              print(f"[{label}] 线上地址: {url}")
+              local = json.loads(re.search(r'<script id="PAYLOAD" type="application/json">(.*?)</script>', local_html, re.S).group(1))
+              with urllib.request.urlopen(url, timeout=30) as r:
+                  html = r.read().decode("utf-8", "ignore")
+              m = re.search(r'<script id="PAYLOAD" type="application/json">(.*?)</script>', html, re.S)
+              online = json.loads(m.group(1)) if m else {}
+              ok = True
+              for key, name in (("snapshot", "红利低波"), ("sector", "行业轮动")):
+                  lv = local.get(key, {}).get("data_date")
+                  ov = online.get(key, {}).get("data_date")
+                  print(f"[{label}] {name} data_date: 本地 {lv} / 线上 {ov}")
+                  if lv != ov:
+                      ok = False
+              lh = local.get("hs300", {}).get("snapshot", {}).get("data_date")
+              oh = online.get("hs300", {}).get("snapshot", {}).get("data_date")
+              print(f"[{label}] 沪深300 data_date: 本地 {lh} / 线上 {oh}")
+              if lh != oh:
+                  ok = False
+              for var, name in (("WEATHER", "大盘天气"), ("TIMING_DB", "择时回测")):
+                  lm = re.search(rf'var {var} = (\{{.*?\}});', local_html, re.S)
+                  om = re.search(rf'var {var} = (\{{.*?\}});', html, re.S)
+                  lv = json.loads(lm.group(1)).get("data_date") if lm else None
+                  ov = json.loads(om.group(1)).get("data_date") if om else None
+                  print(f"[{label}] {name} data_date: 本地 {lv} / 线上 {ov}")
+                  if lv != ov:
+                      ok = False
+              if not ok:
+                  raise SystemExit(f"[{label}] 发布验证失败：线上数据未更新")
+              print(f"[{label}] 发布验证通过")
+
           if not os.path.exists("data/hsk-resource.json"):
-              raise SystemExit("缺少 data/hsk-resource.json，无法验证发布（禁止硬编码旧 URL）")
+              raise SystemExit("缺少 data/hsk-resource.json，无法验证 HSK（禁止硬编码旧 URL）")
           rec = json.load(open("data/hsk-resource.json", encoding="utf-8"))
           url = rec.get("url")
           if not url:
               raise SystemExit("hsk-resource.json 无 url 字段")
-          print(f"线上地址: {url}")
-          local = json.loads(re.search(r'<script id="PAYLOAD" type="application/json">(.*?)</script>', open("portal/index.html", encoding="utf-8").read(), re.S).group(1))
-          with urllib.request.urlopen(url, timeout=30) as r:
-              html = r.read().decode("utf-8", "ignore")
+          local_html = open("portal/index.html", encoding="utf-8").read()
+          verify(url, "HSK", local_html)
+          EOF
+
+      - name: Prepare GitHub Pages site
+        # 静态站：index.html（已注入 payload）+ 本地 echarts；.nojekyll 避免 Jekyll 处理
+        run: |
+          rm -rf _site
+          mkdir -p _site
+          cp portal/index.html portal/echarts.min.js _site/
+          touch _site/.nojekyll
+          # 持久化稳定 Pages URL（项目站，不漂移）
+          python3 - <<'EOF'
+          import json, hashlib, os, re
+          html = open("portal/index.html", "rb").read()
+          text = html.decode("utf-8", "ignore")
+          sha = hashlib.sha256(re.sub(rb'"generated_at"\s*:\s*"[^"]*"', b'"generated_at":""', html)).hexdigest()
+          m = re.search(rb'<script id="PAYLOAD" type="application/json">(.*?)</script>', html, re.S)
+          payload = json.loads(m.group(1)) if m else {}
+          wm = re.search(r'var WEATHER = (\{.*?\});', text, re.S)
+          tm = re.search(r'var TIMING_DB = (\{.*?\});', text, re.S)
+          wdd = json.loads(wm.group(1)).get("data_date") if wm else None
+          tdd = json.loads(tm.group(1)).get("data_date") if tm else None
+          rec = {
+              "url": "https://andy-develop.github.io/quant-data/",
+              "data_date": f"{payload.get('snapshot', {}).get('data_date')}|{payload.get('sector', {}).get('data_date')}|{payload.get('hs300', {}).get('snapshot', {}).get('data_date')}|{wdd}|{tdd}",
+              "content_sha": sha,
+          }
+          os.makedirs("data", exist_ok=True)
+          json.dump(rec, open("data/pages-resource.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+          print("Pages 资源记录:", rec)
+          EOF
+          git add data/pages-resource.json
+          git -c user.name="quant-data-bot" -c user.email="actions@users.noreply.github.com" \
+            commit -m "chore(pages): persist portal pages url [skip ci]" -q \
+            && git pull --rebase origin main -q \
+            && git push -q origin HEAD \
+            && echo "Pages 资源记录已提交" || echo "Pages 资源记录无变化/无需提交"
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: quant-data/_site
+
+  deploy-pages:
+    needs: portal
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: github-pages-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Verify GitHub Pages published page
+        run: |
+          python3 - <<'EOF'
+          import json, os, re, time, urllib.request, urllib.error
+
+          PAGES_URL = "https://andy-develop.github.io/quant-data/"
+          # artifact 未入库；用刚推送的 pages-resource.json 或直接拉仓库文件不方便，
+          # 改为：部署后轮询 Pages，要求能解析出 PAYLOAD（新鲜度与 HSK 同口径由下一次对照）。
+          # 有 pages-resource 时做 data_date 对齐校验。
+          local_dd = None
+          try:
+              # deploy job 无 workspace；从 raw.githubusercontent 读刚提交的记录
+              raw = "https://raw.githubusercontent.com/andy-develop/quant-data/main/data/pages-resource.json"
+              with urllib.request.urlopen(raw, timeout=20) as r:
+                  rec = json.loads(r.read().decode())
+              local_dd = rec.get("data_date")
+              print("期望 data_date:", local_dd)
+          except Exception as e:
+              print("::warning::无法读取 pages-resource.json:", e)
+
+          last_err = None
+          html = ""
+          for i in range(12):
+              try:
+                  req = urllib.request.Request(PAGES_URL, headers={"Cache-Control": "no-cache"})
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      html = r.read().decode("utf-8", "ignore")
+                  if '<script id="PAYLOAD"' in html:
+                      break
+                  last_err = "HTML 无 PAYLOAD"
+              except Exception as e:
+                  last_err = e
+              print(f"等待 Pages 生效… ({i+1}/12) {last_err}")
+              time.sleep(10)
+          else:
+              raise SystemExit(f"GitHub Pages 验证失败: {last_err}")
+
+          online = {}
           m = re.search(r'<script id="PAYLOAD" type="application/json">(.*?)</script>', html, re.S)
-          online = json.loads(m.group(1)) if m else {}
-          checks = [("snapshot", "红利低波"), ("sector", "行业轮动")]
-          ok = True
-          for key, label in checks:
-              lv = local.get(key, {}).get("data_date")
-              ov = online.get(key, {}).get("data_date")
-              print(f"{label} data_date: 本地 {lv} / 线上 {ov}")
-              if lv != ov:
-                  ok = False
-          lh = local.get("hs300", {}).get("snapshot", {}).get("data_date")
-          oh = online.get("hs300", {}).get("snapshot", {}).get("data_date")
-          print(f"沪深300 data_date: 本地 {lh} / 线上 {oh}")
-          if lh != oh:
-              ok = False
-          lw = ow = None
-          lm = re.search(r'var WEATHER = (\{.*?\});', open("portal/index.html", encoding="utf-8").read(), re.S)
-          om = re.search(r'var WEATHER = (\{.*?\});', html, re.S)
-          if lm and om:
-              local_w = json.loads(lm.group(1)); online_w = json.loads(om.group(1))
-              lw = local_w.get("data_date"); ow = online_w.get("data_date")
-          print(f"大盘天气 data_date: 本地 {lw} / 线上 {ow}")
-          if lw != ow:
-              ok = False
-          # 择时回测 TIMING_DB（注入 bt_tab；与 weather 同源指数日）
-          lt = ot = None
-          ltm = re.search(r'var TIMING_DB = (\{.*?\});', open("portal/index.html", encoding="utf-8").read(), re.S)
-          otm = re.search(r'var TIMING_DB = (\{.*?\});', html, re.S)
-          if ltm and otm:
-              local_t = json.loads(ltm.group(1)); online_t = json.loads(otm.group(1))
-              lt = local_t.get("data_date"); ot = online_t.get("data_date")
-          print(f"择时回测 timing_db data_date: 本地 {lt} / 线上 {ot}")
-          if lt != ot:
-              ok = False
-          if not ok:
-              raise SystemExit("发布验证失败：线上数据未更新（对比上方 data_date）")
-          print("发布验证通过：线上已是本次数据（红利低波 + 行业轮动 + 沪深300 + 大盘天气 + 择时回测）")
+          if m:
+              online = json.loads(m.group(1))
+          od = f"{online.get('snapshot', {}).get('data_date')}|{online.get('sector', {}).get('data_date')}|{online.get('hs300', {}).get('snapshot', {}).get('data_date')}"
+          wm = re.search(r'var WEATHER = (\{.*?\});', html, re.S)
+          tm = re.search(r'var TIMING_DB = (\{.*?\});', html, re.S)
+          wdd = json.loads(wm.group(1)).get("data_date") if wm else None
+          tdd = json.loads(tm.group(1)).get("data_date") if tm else None
+          online_dd = f"{od}|{wdd}|{tdd}"
+          print(f"[Pages] 线上 data_date: {online_dd}")
+          print(f"[Pages] page_url: {PAGES_URL}")
+          if local_dd and online_dd != local_dd:
+              raise SystemExit(f"[Pages] data_date 不一致: 期望 {local_dd} / 线上 {online_dd}")
+          print("[Pages] 发布验证通过")
           EOF
