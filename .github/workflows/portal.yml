@@ -25,7 +25,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: portal-pipeline
+  # 与 mirror 共用，避免两边同时 commit weather/timing_db 导致 rebase 冲突
+  group: quant-data-data-write
   cancel-in-progress: false
 
 jobs:
@@ -92,8 +93,17 @@ jobs:
             echo "无新增变更，跳过 commit"
           else
             git commit -m "chore(data): portal pipeline $(date -u +%Y-%m-%d)"
-            # 并发推送（手动 push / mirror 流水线）导致非快进时先 rebase 再 push，避免数据丢在 runner 上
-            git pull --rebase origin main
+            # 并发推送导致非快进时先 rebase；weather/timing 冲突保留本流水线刚重建的版本
+            if ! git pull --rebase origin main; then
+              echo "::warning::rebase 冲突，优先保留本流水线 weather/timing_db"
+              git checkout --theirs -- data/payload/weather.json data/payload/timing_db.json || true
+              git add data/payload/weather.json data/payload/timing_db.json
+              if git diff --name-only --diff-filter=U | grep -q .; then
+                echo "仍有未解决冲突:"; git diff --name-only --diff-filter=U
+                exit 1
+              fi
+              GIT_EDITOR=true git rebase --continue
+            fi
             git push
           fi
 
