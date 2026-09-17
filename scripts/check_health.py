@@ -35,6 +35,8 @@ CRITICAL_INDICES = [
     ("H30269", "红利低波价格"),
     ("H00300", "沪深300全收益"),
     ("000300", "沪深300"),
+    ("H20782", "中证500低波全收益"),
+    ("930782", "中证500低波价格"),
     ("000001", "上证"),
     ("399001", "深成指"),
     ("399006", "创业板指"),
@@ -187,7 +189,7 @@ def check_critical_indices(errors: list, warnings: list) -> None:
             )
         elif lag > 0 and after_close:
             # 收盘后仍缺当日：全收益 H* 尤其危险（无 EM/TX 兜底）
-            if code in ("H20269", "H00300"):
+            if code in ("H20269", "H00300", "H20782"):
                 errors.append(
                     f"{code}({label}) 收盘后仍缺当日 bar（last={last}）；"
                     f"全收益指数无备用通道，拒绝发布残缺信号"

@@ -5,6 +5,7 @@
 输入（全部来自 quant-data data/）：
   - kline/index/H20269|H30269.parquet      → 红利低波 snapshot+backtest（四态仓位机默认参数）
   - kline/index/H00300|000300.parquet      → 沪深300 择时 snapshot+backtest（v8.0 变体参数）
+  - kline/index/H20782|930782.parquet      → 中证500低波（500SNLV）snapshot+backtest（默认参数）
   - kline/etf/etf_kline.parquet            → 行业轮动 sector（21 行业 × 32 ETF）
   - snapshot/etf_<day>.parquet / index_<day>.parquet → morning 上午实时段（11:30 快照）
   - factors/stock.parquet + meta/stocks.parquet      → 选股 stocks + factors
@@ -15,8 +16,9 @@
   - engine/sector_engine.py + engine/sector_universe.py + engine/sector_update.build_sector_payload：行业轮动
 
 输出（data/payload/，供 quant-portal/build_portal.py 消费）：
-  - hl.json       {"snapshot","backtest","params"}      红利低波
-  - hs300.json    {"snapshot","backtest","params"}      沪深300 择时
+  - hl.json         {"snapshot","backtest","params"}      红利低波
+  - hs300.json      {"snapshot","backtest","params"}      沪深300 择时
+  - zz500snlv.json  {"snapshot","backtest","params"}      中证500低波（500SNLV）
   - sector.json   sector 段（排行/持仓/风控/回测/ETF 映射/披露）
   - stock.json    {"stocks":[[code,name],...],"factors":{code:{close,mom_20,mom_60,vol_20}}}
   - morning.json  {"fetched_at","etf":[...],"index":[...]}  上午实时（今天 11:30 快照）
@@ -227,6 +229,11 @@ def main() -> None:
                        "val_half_cap": P.VAL_HALF_CAP}
     _write(f"{PAY}/hs300.json", hs300)
 
+    print("[gen_payload] 中证500低波（H20782/930782，默认参数 · 500SNLV）...")
+    zz500snlv = run_timing(load_index_df("H20782", "930782"), p=None, label="中证500低波")
+    zz500snlv["params"] = {"x_up": EBT.X_UP, "y_down": EBT.Y_DOWN, "hold_days": EBT.HOLD_DAYS}
+    _write(f"{PAY}/zz500snlv.json", zz500snlv)
+
     print("[gen_payload] 行业轮动（32 ETF）...")
     _write(f"{PAY}/sector.json", run_sector())
 
@@ -237,7 +244,8 @@ def main() -> None:
     _write(f"{PAY}/morning.json", build_morning())
 
     C.manifest_add({"event": "gen_payload", "at": C.bj_now(),
-                    "hl_last": hl["backtest"]["end"], "hs300_last": hs300["backtest"]["end"]})
+                    "hl_last": hl["backtest"]["end"], "hs300_last": hs300["backtest"]["end"],
+                    "zz500snlv_last": zz500snlv["backtest"]["end"]})
     print("[gen_payload] 完成")
 
 
