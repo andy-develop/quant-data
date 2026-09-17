@@ -16,6 +16,7 @@ data/factors/
 
 # 构建产物（门户 index.html 在发布分支/构建时生成；main 分支不存）
 portal/index.html
+portal/app.html
 
 # QLab 外置 JSON（build_portal 生成，随站点发布）
 portal/qlab/

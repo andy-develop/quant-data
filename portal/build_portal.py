@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""门户构建脚本：从 quant-data 单一数据源生成统一门户 index.html。
+"""门户构建脚本：从 quant-data 单一数据源生成轻量导航页 + 策略应用页。
 
 数据来源（全部来自 quant-data，由 gen_payload.py 生成 data/payload/）：
   - payload/hl.json       → PAYLOAD 的 snapshot / backtest（红利低波）
@@ -16,7 +16,9 @@
   （一次性抽取的实验室 payload，随数据仓库入库，懒更新）。
 
 用法: python3 portal/build_portal.py [QLAB_REPORT=path/to/quant-lab/report/index.html]
-输出: quant-data/portal/index.html（.gitignore 忽略，发布时上传）
+输出:
+  - portal/index.html  轻量四大板块导航（首屏入口，.gitignore）
+  - portal/app.html    策略应用页（原整站内容，.gitignore）
 """
 import json
 import os
@@ -24,9 +26,11 @@ import sys
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE = os.path.join(ROOT, "template.html")
+HOME_TEMPLATE = os.path.join(ROOT, "home.html")
 WEATHER_TAB = os.path.join(ROOT, "weather_tab.html")
 BT_TAB = os.path.join(ROOT, "bt_tab.html")
-OUTPUT = os.path.join(ROOT, "index.html")
+OUTPUT_APP = os.path.join(ROOT, "app.html")
+OUTPUT_HOME = os.path.join(ROOT, "index.html")
 BASE = os.path.dirname(ROOT)                     # quant-data 仓库根
 QD = os.path.join(BASE, "data", "payload")       # gen_payload.py 产物
 QLAB_DIR = os.path.join(BASE, "data", "qlab")    # 实验室 payload 归档（CI 回退）
@@ -309,11 +313,25 @@ def main():
         print(f"错误: 仍有占位符未替换: {remain}")
         sys.exit(1)
 
-    with open(OUTPUT, "w", encoding="utf-8") as f:
+    with open(OUTPUT_APP, "w", encoding="utf-8") as f:
         f.write(html)
 
-    size_kb = os.path.getsize(OUTPUT) / 1024
-    print(f"生成完成: {OUTPUT} ({size_kb:.1f} KB)")
+    # 轻量导航页：首屏入口，不内联任何策略 payload
+    if not os.path.exists(HOME_TEMPLATE):
+        print(f"错误: 缺少导航模板 {HOME_TEMPLATE}")
+        sys.exit(1)
+    with open(HOME_TEMPLATE, encoding="utf-8") as f:
+        home = f.read()
+    home = home.replace("/*__DATA_DATE__*/", data_date)
+    if "__DATA_DATE__" in home:
+        print("错误: 导航页仍有占位符未替换: __DATA_DATE__")
+        sys.exit(1)
+    with open(OUTPUT_HOME, "w", encoding="utf-8") as f:
+        f.write(home)
+
+    app_kb = os.path.getsize(OUTPUT_APP) / 1024
+    home_kb = os.path.getsize(OUTPUT_HOME) / 1024
+    print(f"生成完成: {OUTPUT_HOME} ({home_kb:.1f} KB 导航) + {OUTPUT_APP} ({app_kb:.1f} KB 应用)")
 
 
 if __name__ == "__main__":

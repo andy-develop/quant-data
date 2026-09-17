@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Cache-Control" content="max-age=300, must-revalidate">
-<title>红利低波 · 跟投仪表盘</title>
+<title>AI策略库</title>
 <script src="echarts.min.js"></script>
 <style>
 :root{
@@ -373,12 +373,12 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
 <body>
 <!-- 门户顶部栏：品牌 + 三大分类切换 -->
 <div class="portal-bar">
-  <div class="portal-brand">
+  <a class="portal-brand" href="index.html" title="返回导航" style="text-decoration:none;color:inherit">
     <span class="portal-logo">◇</span>
     <div>
       <div class="portal-title">AI策略库</div>
     </div>
-  </div>
+  </a>
   <nav class="portal-tabs" id="portalTabs">
     <button class="p-tab active" data-cat="short">短线策略</button>
     <button class="p-tab" data-cat="etf">ETF策略</button>
@@ -3321,6 +3321,14 @@ window.PickEngine = { show: showView };
         "。请确认站点已发布 qlab/" + kind + ".json。";
     });
   }
+
+  // 进入后空闲预取另一份 QLab，减少板块内切换等待
+  var _warmQlab = window.requestIdleCallback || function(fn){ setTimeout(fn, 1200); };
+  _warmQlab(function(){
+    ["momentum", "blackbox"].forEach(function(k){
+      if (!QLab.cache[k] && !QLab.loading[k]) loadQlab(k).catch(function(){});
+    });
+  });
 
   window.QLab = { show: qlabShow };
 })();

@@ -5,7 +5,7 @@ name: Portal Pipeline (12:00 Beijing)
 #   -> fetch_snapshot(11:30) -> build_factors -> gen_payload(hl/hs300/sector/stock/morning)
 #   -> build_weather(weather.json) -> fetch_option_hs300 -> build_hs300_score
 #   -> build_timing_db(timing_db.json 择时回测 K 线包)
-#   -> build_portal(index.html) -> 提交 data 增量
+#   -> build_portal(index.html 导航 + app.html 策略页) -> 提交 data 增量
 #   -> 双通道发布：HSK 文件托管 + GitHub Pages
 #   -> 分别 verify 两端 data_date
 #
@@ -102,7 +102,7 @@ jobs:
       - name: Health gates (calendar / cn10y / weather freshness)
         run: python3 scripts/check_health.py
 
-      - name: Build portal index.html
+      - name: Build portal (index nav + app.html)
         run: python3 portal/build_portal.py
 
       - name: Commit data increments
@@ -129,19 +129,19 @@ jobs:
           fi
 
       - name: Prepare GitHub Pages site
-        # 静态站：index.html（已注入 payload）+ 本地 echarts；.nojekyll 避免 Jekyll 处理
+        # 静态站：轻量 index.html 导航 + app.html 策略页 + 本地 echarts；.nojekyll 避免 Jekyll 处理
         # 须在 HSK 发布前准备：花生壳需整目录上传（含 echarts.min.js），否则图表脚本 404
         run: |
           rm -rf _site
           mkdir -p _site
-          cp portal/index.html portal/echarts.min.js _site/
-          # QLab 动量/黑盒回测 JSON（按需 fetch，不再内联进 index.html）
+          cp portal/index.html portal/app.html portal/echarts.min.js _site/
+          # QLab 动量/黑盒回测 JSON（按需 fetch，不再内联进 HTML）
           if [ -d portal/qlab ]; then cp -R portal/qlab _site/qlab; fi
           touch _site/.nojekyll
-          # 持久化稳定 Pages URL（项目站，不漂移）
+          # 持久化稳定 Pages URL（项目站，不漂移）；指纹以 app.html 为准
           python3 - <<'EOF'
           import json, hashlib, os, re
-          html = open("portal/index.html", "rb").read()
+          html = open("portal/app.html", "rb").read()
           text = html.decode("utf-8", "ignore")
           sha = hashlib.sha256(re.sub(rb'"generated_at"\s*:\s*"[^"]*"', b'"generated_at":""', html)).hexdigest()
           m = re.search(rb'<script id="PAYLOAD" type="application/json">(.*?)</script>', html, re.S)
@@ -174,10 +174,10 @@ jobs:
           npm install -g @aweray/hsk-cli >/dev/null 2>&1
           export PATH="$PATH:$(npm prefix -g)/bin"
           hsk-cli api-key set --scene file_hosting --key "$HSK_API_KEY" >/dev/null 2>&1
-          # 无变化跳过发布：三端+打分 data_date + 大盘天气/择时回测 + 归一化内容指纹
+          # 无变化跳过发布：三端+打分 data_date + 大盘天气/择时回测 + 归一化内容指纹（以 app.html 为准）
           NEED_PUBLISH=$(python3 - <<'EOF'
           import json, os, re, hashlib
-          raw = open("_site/index.html", "rb").read()
+          raw = open("_site/app.html", "rb").read()
           text = raw.decode("utf-8", "ignore")
           norm = re.sub(rb'"generated_at"\s*:\s*"[^"]*"', b'"generated_at":""', raw)
           sha = hashlib.sha256(norm).hexdigest()
@@ -215,7 +215,7 @@ jobs:
           rec = {}
           if um: rec["url"] = um.group(1) if um.lastindex else um.group(0).rstrip('",)}')
           if rid: rec["resource_id"] = rid.group(1)
-          html = open("_site/index.html", encoding="utf-8").read()
+          html = open("_site/app.html", encoding="utf-8").read()
           payload = json.loads(re.search(r'<script id="PAYLOAD" type="application/json">(.*?)</script>', html, re.S).group(1))
           wm = re.search(r'var WEATHER = (\{.*?\});', html, re.S)
           tm = re.search(r'var TIMING_DB = (\{.*?\});', html, re.S)
@@ -223,7 +223,7 @@ jobs:
           tdd = json.loads(tm.group(1)).get("data_date") if tm else None
           hs = (payload.get("hs300_score") or {}).get("data_date") or (payload.get("hs300_score") or {}).get("snapshot", {}).get("data_date")
           rec["data_date"] = f"{payload.get('snapshot', {}).get('data_date')}|{payload.get('sector', {}).get('data_date')}|{payload.get('hs300', {}).get('snapshot', {}).get('data_date')}|{hs}|{wdd}|{tdd}"
-          rec["content_sha"] = hashlib.sha256(re.sub(rb'"generated_at"\s*:\s*"[^"]*"', b'"generated_at":""', open("_site/index.html", "rb").read())).hexdigest()
+          rec["content_sha"] = hashlib.sha256(re.sub(rb'"generated_at"\s*:\s*"[^"]*"', b'"generated_at":""', open("_site/app.html", "rb").read())).hexdigest()
           if not rec.get("url") or not rec.get("resource_id"):
               raise SystemExit(f"无法从 hsk-cli 输出解析资源 URL/ID: {out[:400]}")
           if os.path.exists("data/hsk-resource.json"):
@@ -240,10 +240,11 @@ jobs:
           HSK_API_KEY: ${{ secrets.HSK_API_KEY }}
 
       - name: Verify HSK published page
-        # 发布后验证：HSK 线上 PAYLOAD / WEATHER / TIMING_DB / hs300_score 必须与本地一致
+        # 发布后验证：HSK 线上 app.html 的 PAYLOAD / WEATHER / TIMING_DB / hs300_score 必须与本地一致
         run: |
           python3 - <<'EOF'
           import json, os, re, urllib.request
+          from urllib.parse import urljoin
 
           def verify(url, label, local_html):
               print(f"[{label}] 线上地址: {url}")
@@ -292,8 +293,16 @@ jobs:
           url = rec.get("url")
           if not url:
               raise SystemExit("hsk-resource.json 无 url 字段")
-          local_html = open("portal/index.html", encoding="utf-8").read()
-          verify(url, "HSK", local_html)
+          app_url = urljoin(url if url.endswith("/") else url + "/", "app.html")
+          local_html = open("portal/app.html", encoding="utf-8").read()
+          # 入口导航页应可访问且含四大板块
+          with urllib.request.urlopen(url, timeout=30) as r:
+              home = r.read().decode("utf-8", "ignore")
+          for needle in ("短线策略", "ETF策略", "个性化选股", "大盘天气", "app.html"):
+              if needle not in home:
+                  raise SystemExit(f"[HSK] 导航页缺少: {needle}")
+          print("[HSK] 导航页验证通过")
+          verify(app_url, "HSK", local_html)
           EOF
 
       - name: Upload GitHub Pages artifact
@@ -322,6 +331,7 @@ jobs:
           import json, os, re, time, urllib.request, urllib.error
 
           PAGES_URL = "https://andy-develop.github.io/quant-data/"
+          APP_URL = PAGES_URL + "app.html"
           # artifact 未入库；用刚推送的 pages-resource.json 或直接拉仓库文件不方便，
           # 改为：部署后轮询 Pages，要求能解析出 PAYLOAD（新鲜度与 HSK 同口径由下一次对照）。
           # 有 pages-resource 时做 data_date 对齐校验。
@@ -338,20 +348,29 @@ jobs:
 
           last_err = None
           html = ""
+          home = ""
           for i in range(12):
               try:
                   req = urllib.request.Request(PAGES_URL, headers={"Cache-Control": "no-cache"})
                   with urllib.request.urlopen(req, timeout=30) as r:
+                      home = r.read().decode("utf-8", "ignore")
+                  req2 = urllib.request.Request(APP_URL, headers={"Cache-Control": "no-cache"})
+                  with urllib.request.urlopen(req2, timeout=30) as r:
                       html = r.read().decode("utf-8", "ignore")
-                  if '<script id="PAYLOAD"' in html:
+                  if '<script id="PAYLOAD"' in html and "短线策略" in home:
                       break
-                  last_err = "HTML 无 PAYLOAD"
+                  last_err = "app.html 无 PAYLOAD 或导航页未就绪"
               except Exception as e:
                   last_err = e
               print(f"等待 Pages 生效… ({i+1}/12) {last_err}")
               time.sleep(10)
           else:
               raise SystemExit(f"GitHub Pages 验证失败: {last_err}")
+
+          for needle in ("短线策略", "ETF策略", "个性化选股", "大盘天气", "app.html"):
+              if needle not in home:
+                  raise SystemExit(f"[Pages] 导航页缺少: {needle}")
+          print("[Pages] 导航页验证通过")
 
           online = {}
           m = re.search(r'<script id="PAYLOAD" type="application/json">(.*?)</script>', html, re.S)
