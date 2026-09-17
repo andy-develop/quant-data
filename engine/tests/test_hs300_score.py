@@ -29,6 +29,19 @@ class TestHs300Score(unittest.TestCase):
         s3 = S._percentile_score(raw, window=200, flip=True)
         self.assertLess(s3.iloc[-1], -0.9)
 
+    def test_percentile_cold_start_forces_zero(self):
+        """有效历史 < MIN_HISTORY 时明确记 0，禁止 2 点打出 ±1。"""
+        raw = pd.Series([np.nan] * 10 + [0.5, 0.9])
+        s = S._percentile_score(raw, window=200, flip=False)
+        self.assertEqual(float(s.iloc[-1]), 0.0)
+        self.assertEqual(float(s.iloc[-2]), 0.0)
+        self.assertTrue(bool(S._cold_start_mask(raw).iloc[-1]))
+        # 刚好满门槛后不再强制 0
+        raw60 = pd.Series(np.linspace(0, 1, S.MIN_HISTORY))
+        s60 = S._percentile_score(raw60, window=200, flip=False)
+        self.assertGreater(abs(float(s60.iloc[-1])), 0.0)
+        self.assertFalse(bool(S._cold_start_mask(raw60).iloc[-1]))
+
     def test_adx_signed_runs(self):
         n = 120
         close = pd.Series(np.linspace(100, 130, n) + np.sin(np.linspace(0, 8, n)))

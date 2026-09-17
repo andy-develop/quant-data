@@ -2123,8 +2123,14 @@ function renderHs300Score(){
   var note = document.getElementById("x-score-note");
   var meth = HS_SCORE.method || {};
   var proxyNote = snap.opt_iv_is_proxy ? " · 当日 IV 为已实现波动回退" : "";
-  var optDays = snap.option_history_days || 0;
-  var coldNote = optDays < 30 ? (" · 期权日表仅 " + optDays + " 天，PCR/IV 百分位仍在冷启动") : "";
+  var coldKeys = snap.cold_start_indicators || [];
+  var coldNote = "";
+  if (coldKeys.length) {
+    var coldLabels = (snap.indicators || []).filter(function(it){ return coldKeys.indexOf(it.key) >= 0; })
+      .map(function(it){ return it.label || it.key; });
+    coldNote = " · 冷启动（有效历史&lt;" + (meth.min_history || 60) + "日，记 0）：" +
+      (coldLabels.length ? coldLabels.join("、") : coldKeys.join("、"));
+  }
   note.innerHTML = "数据日 <b>" + (HS_SCORE.data_date || "—") + "</b> · 滚动 " + (meth.window || 756) +
     " 日百分位映射到 [-1,+1]，五维等权" + proxyNote + coldNote +
     "。<br>信号阈值 ±0.33：看多 / 看平 / 看空；与上方四态仓位机信号独立，仅作技术面操作倾向参考。";
@@ -2133,10 +2139,12 @@ function renderHs300Score(){
   tbody.innerHTML = (snap.indicators || []).map(function(it){
     var raw = it.raw == null ? "—" : (typeof it.raw === "number" ? it.raw.toFixed(2) + (it.unit || "") : it.raw);
     var s = it.score == null ? "—" : ((it.score > 0 ? "+" : "") + (+it.score).toFixed(2));
+    if (it.cold_start) s += " <span style='color:var(--warn);font-weight:500'>冷启动</span>";
     var scol = it.score == null ? "" : (it.score > 0.15 ? "color:var(--up)" : (it.score < -0.15 ? "color:var(--down)" : ""));
+    var dir = it.cold_start ? "历史不足→记0" : (it.flip ? "过热→偏空" : "正向/逆向偏多");
     return "<tr><td>" + (dimNames[it.dim] || it.dim) + "</td><td>" + it.label +
       "</td><td class='num'>" + raw + "</td><td class='num' style='" + scol + "'>" + s +
-      "</td><td>" + (it.flip ? "过热→偏空" : "正向/逆向偏多") + "</td></tr>";
+      "</td><td>" + dir + "</td></tr>";
   }).join("");
 }
 function initHs300ScoreCharts(){

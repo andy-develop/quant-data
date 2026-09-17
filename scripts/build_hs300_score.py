@@ -11,6 +11,7 @@
 
 标准化：各原始指标在滚动 756 交易日（约 3 年）窗口内做百分位 → 映射到 [-1,+1]
   score = 2 * percentile_rank - 1
+冷启动：有效历史 < 60 交易日的指标当日强制记 0，并打 cold_start flag（避免 2 点打出 ±1）
 方向（正分=偏多 / 负分=偏空）：
   价格乖离、布林%B、换手乖离、换手波动、涨停占比 → 取反（过热/拥挤偏空）
   ADX带方向、创新高占比、IV（恐慌）、PCR（恐慌） → 正向（趋势多 / 恐慌逆向偏多）
@@ -40,6 +41,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common as C  # noqa: E402
 
 ROLL = 756
+MIN_HISTORY = 60  # 百分位冷启动门槛：不足则记 0，不参与噪声极端分
 PAYLOAD_KEEP_YEARS = int(os.environ.get("SCORE_KEEP_YEARS", "5"))
 OPT_PATH = os.path.join(C.KDIR, "option", "hs300_option_daily.parquet")
 OUT = os.path.join(C.PAYLOAD_DIR, "hs300_score.json")
@@ -103,10 +105,16 @@ def _std(s: pd.Series, n: int) -> pd.Series:
     return s.rolling(n, min_periods=n).std()
 
 
-def _percentile_score(raw: pd.Series, window: int = ROLL, flip: bool = False) -> pd.Series:
+def _percentile_score(
+    raw: pd.Series,
+    window: int = ROLL,
+    flip: bool = False,
+    min_history: int = MIN_HISTORY,
+) -> pd.Series:
     """滚动百分位 → [-1, +1]；可选方向翻转。
 
     在非空子序列上计算，再对齐回原索引（适配期权日表冷启动的稀疏序列）。
+    有效历史 < min_history 时明确记 0（不做百分位），避免 2～3 个点打出 ±1。
     """
     out = pd.Series(np.nan, index=raw.index, dtype=float)
     mask = raw.notna()
@@ -114,23 +122,35 @@ def _percentile_score(raw: pd.Series, window: int = ROLL, flip: bool = False) ->
         return out
     sub = raw[mask].astype(float)
     nn = len(sub)
-    use_window = window if nn >= max(60, window // 4) else max(nn, 1)
-    min_p = 1 if nn < 30 else min(120, use_window)
+
+    # 整段历史不足门槛 → 有值日一律记 0
+    if nn < min_history:
+        out.loc[sub.index] = 0.0
+        return out
+
+    use_window = window if nn >= max(min_history, window // 4) else max(nn, min_history)
 
     def _rank(x):
         if len(x) < 1 or np.isnan(x[-1]):
             return np.nan
         v = x[~np.isnan(x)]
-        if len(v) < 1:
+        if len(v) < min_history:
             return np.nan
         return float(np.mean(v <= v[-1]))
 
-    pct = sub.rolling(use_window, min_periods=min_p).apply(_rank, raw=True)
+    pct = sub.rolling(use_window, min_periods=min_history).apply(_rank, raw=True)
     score = 2.0 * pct - 1.0
     if flip:
         score = -score
-    out.loc[score.index] = score.clip(-1, 1)
+    # 滚动窗口未满 min_history 的早期点：fillna(0)，与整段冷启动口径一致
+    out.loc[score.index] = score.clip(-1, 1).fillna(0.0)
     return out
+
+
+def _cold_start_mask(raw: pd.Series, min_history: int = MIN_HISTORY) -> pd.Series:
+    """有值且累计有效历史 < min_history → True（冷启动）。"""
+    hist = raw.notna().cumsum()
+    return raw.notna() & (hist < min_history)
 
 
 def _adx_signed(df: pd.DataFrame, n: int = 20) -> pd.Series:
@@ -280,6 +300,7 @@ def score_frame(df: pd.DataFrame) -> pd.DataFrame:
     for key, flip in FLIP.items():
         out[f"raw_{key}"] = df[key]
         out[f"s_{key}"] = _percentile_score(df[key], ROLL, flip=flip)
+        out[f"cold_{key}"] = _cold_start_mask(df[key], MIN_HISTORY)
 
     for dim, meta in DIMS.items():
         cols = [f"s_{k}" for k in meta["indicators"]]
@@ -303,9 +324,13 @@ def _f(x, nd=4):
 def latest_payload(scored: pd.DataFrame, opt_days: int = 0) -> dict:
     row = scored.dropna(subset=["score"]).iloc[-1]
     indicators = []
+    cold_keys = []
     for key, meta in IND_META.items():
         raw = row.get(f"raw_{key}")
         s = row.get(f"s_{key}")
+        cold = bool(row.get(f"cold_{key}", False))
+        if cold:
+            cold_keys.append(key)
         indicators.append({
             "key": key,
             "label": meta["label"],
@@ -314,6 +339,7 @@ def latest_payload(scored: pd.DataFrame, opt_days: int = 0) -> dict:
             "score": _f(s, 4),
             "flip": FLIP[key],
             "dim": next(d for d, m in DIMS.items() if key in m["indicators"]),
+            "cold_start": cold,
         })
 
     dims = []
@@ -358,15 +384,17 @@ def latest_payload(scored: pd.DataFrame, opt_days: int = 0) -> dict:
     return {
         "generated_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "data_date": row["date"].strftime("%Y-%m-%d"),
-        "version": "v1.1",
+        "version": "v1.2",
         "method": {
             "range": [-1, 1],
             "window": ROLL,
+            "min_history": MIN_HISTORY,
             "agg": "equal_weight",
             "stance_threshold": 0.33,
             "note": ("滚动3年百分位映射到[-1,+1]；价格/量能/换手波动/涨停取反；"
                      "趋势与恐慌类(IV/PCR)正向。换手用指数成交额代理；"
-                     "IV缺历史时用20日已实现波动回退。"
+                     "IV缺历史时用20日已实现波动回退；"
+                     f"有效历史<{MIN_HISTORY}交易日的指标强制记0并标记cold_start。"
                      "信号：>+0.33看多，[-0.33,+0.33]看平，<-0.33看空。"),
         },
         "snapshot": {
@@ -377,6 +405,7 @@ def latest_payload(scored: pd.DataFrame, opt_days: int = 0) -> dict:
             "close": _f(row["close"], 2),
             "dims": dims,
             "indicators": indicators,
+            "cold_start_indicators": cold_keys,
             "opt_iv_is_proxy": bool(row.get("opt_iv_is_proxy", False)),
             "option_history_days": int(opt_days),
         },
