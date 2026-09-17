@@ -106,6 +106,16 @@ section + section{margin-top:34px}
 .score-tbl th{font-size:12px;color:var(--sub);font-weight:600;background:#F6FAFE}
 .score-tbl td.num{font-variant-numeric:tabular-nums;font-weight:600}
 .score-note{font-size:12px;color:var(--dim);margin-top:10px;line-height:1.6}
+.score-advice{margin-top:12px;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:#F6FAFE}
+.score-advice.bull{border-color:#F5C6C2;background:#FDF2F2}
+.score-advice.bear{border-color:#B7E0C2;background:#F1F9F3}
+.score-advice.mid{border-color:#D5E3F2;background:#F6FAFE}
+.score-advice .sig{font-size:15px;font-weight:700;color:var(--ink)}
+.score-advice .act{font-size:13.5px;color:var(--ink2);margin-top:4px;line-height:1.5}
+.score-rules{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:10px}
+.score-rules th,.score-rules td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.score-rules th{font-size:11.5px;color:var(--sub);font-weight:600;background:#F6FAFE}
+.score-rules tr.on td{background:#EEF5FC;font-weight:600}
 .score-charts{display:grid;grid-template-columns:1.4fr 1fr;gap:12px;margin-top:10px}
 @media(max-width:720px){.score-charts{grid-template-columns:1fr}}
 .score-chart{height:200px}
@@ -666,10 +676,22 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
             <div class="big" id="x-score-big">—</div>
             <span class="stance mid" id="x-score-stance">—</span>
             <div class="score-bar"><div class="ptr" id="x-score-ptr" style="left:50%"></div></div>
-            <div class="score-bar-scale"><span>-1 偏空</span><span>0</span><span>+1 偏多</span></div>
+            <div class="score-bar-scale"><span>-1 看空</span><span>0</span><span>+1 看多</span></div>
           </div>
           <div>
             <div class="score-dims" id="x-score-dims"></div>
+            <div class="score-advice mid" id="x-score-advice">
+              <div class="sig" id="x-score-advice-sig">—</div>
+              <div class="act" id="x-score-advice-act">—</div>
+            </div>
+            <table class="score-rules" id="x-score-rules">
+              <thead><tr><th>综合技术得分</th><th>信号含义</th><th>操作倾向</th></tr></thead>
+              <tbody>
+                <tr data-band="bull"><td>&gt; +0.33</td><td>看多</td><td>市场偏强，考虑积极或持有</td></tr>
+                <tr data-band="mid"><td>−0.33 ~ +0.33</td><td>看平</td><td>多空均衡，视为震荡，观望或高抛低吸</td></tr>
+                <tr data-band="bear"><td>&lt; −0.33</td><td>看空</td><td>市场偏弱，考虑减仓或防御</td></tr>
+              </tbody>
+            </table>
             <div class="score-note" id="x-score-note">—</div>
           </div>
         </div>
@@ -2060,12 +2082,30 @@ function renderHs300Score(){
   var sc = snap.score == null ? 0 : +snap.score;
   var elBig = document.getElementById("x-score-big");
   elBig.textContent = (sc > 0 ? "+" : "") + sc.toFixed(2);
-  elBig.style.color = sc > 0.15 ? "var(--up)" : (sc < -0.15 ? "var(--down)" : "var(--ink)");
+  elBig.style.color = sc > 0.33 ? "var(--up)" : (sc < -0.33 ? "var(--down)" : "var(--ink)");
+  // 前端兜底：与 build_hs300_score 阈值一致（>+0.33 / [-0.33,+0.33] / <-0.33）
+  var band = sc > 0.33 ? "bull" : (sc < -0.33 ? "bear" : "mid");
+  var stanceZh = snap.stance_zh || (band === "bull" ? "看多" : (band === "bear" ? "看空" : "看平"));
+  var advice = snap.advice || (band === "bull" ? "市场偏强，考虑积极或持有"
+    : (band === "bear" ? "市场偏弱，考虑减仓或防御" : "多空均衡，视为震荡，观望或高抛低吸"));
   var st = document.getElementById("x-score-stance");
-  st.textContent = snap.stance_zh || "—";
-  st.className = "stance " + (snap.stance === "bullish" ? "bull" : (snap.stance === "bearish" ? "bear" : "mid"));
+  st.textContent = stanceZh;
+  st.className = "stance " + band;
   var ptr = document.getElementById("x-score-ptr");
   ptr.style.left = ((sc + 1) / 2 * 100).toFixed(1) + "%";
+
+  var adv = document.getElementById("x-score-advice");
+  if (adv) {
+    adv.className = "score-advice " + band;
+    document.getElementById("x-score-advice-sig").textContent = "买卖建议 · " + stanceZh;
+    document.getElementById("x-score-advice-act").textContent = advice;
+  }
+  var rules = document.getElementById("x-score-rules");
+  if (rules) {
+    Array.prototype.forEach.call(rules.querySelectorAll("tbody tr"), function(tr){
+      tr.classList.toggle("on", tr.getAttribute("data-band") === band);
+    });
+  }
 
   var dimNames = {price:"价格", volume:"量能", trend:"趋势", volatility:"波动", crowd:"拥挤"};
   var dimsEl = document.getElementById("x-score-dims");
@@ -2087,7 +2127,7 @@ function renderHs300Score(){
   var coldNote = optDays < 30 ? (" · 期权日表仅 " + optDays + " 天，PCR/IV 百分位仍在冷启动") : "";
   note.innerHTML = "数据日 <b>" + (HS_SCORE.data_date || "—") + "</b> · 滚动 " + (meth.window || 756) +
     " 日百分位映射到 [-1,+1]，五维等权" + proxyNote + coldNote +
-    "。<br>正分偏多、负分偏空；价格/量能/换手波动/涨停拥挤取反，趋势与 IV/PCR 恐慌逆向为正。";
+    "。<br>信号阈值 ±0.33：看多 / 看平 / 看空；与上方四态仓位机信号独立，仅作技术面操作倾向参考。";
 
   var tbody = document.getElementById("x-score-tbody");
   tbody.innerHTML = (snap.indicators || []).map(function(it){

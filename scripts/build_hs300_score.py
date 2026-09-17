@@ -344,29 +344,36 @@ def latest_payload(scored: pd.DataFrame, opt_days: int = 0) -> dict:
         })
 
     score = float(row["score"])
-    if score >= 0.4:
-        stance, stance_zh = "bullish", "偏多"
-    elif score <= -0.4:
-        stance, stance_zh = "bearish", "偏空"
+    # 买卖建议阈值：> +0.33 看多；[-0.33,+0.33] 看平；< -0.33 看空
+    if score > 0.33:
+        stance, stance_zh = "bullish", "看多"
+        advice = "市场偏强，考虑积极或持有"
+    elif score < -0.33:
+        stance, stance_zh = "bearish", "看空"
+        advice = "市场偏弱，考虑减仓或防御"
     else:
-        stance, stance_zh = "neutral", "中性"
+        stance, stance_zh = "neutral", "看平"
+        advice = "多空均衡，视为震荡，观望或高抛低吸"
 
     return {
         "generated_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "data_date": row["date"].strftime("%Y-%m-%d"),
-        "version": "v1.0",
+        "version": "v1.1",
         "method": {
             "range": [-1, 1],
             "window": ROLL,
             "agg": "equal_weight",
+            "stance_threshold": 0.33,
             "note": ("滚动3年百分位映射到[-1,+1]；价格/量能/换手波动/涨停取反；"
                      "趋势与恐慌类(IV/PCR)正向。换手用指数成交额代理；"
-                     "IV缺历史时用20日已实现波动回退。"),
+                     "IV缺历史时用20日已实现波动回退。"
+                     "信号：>+0.33看多，[-0.33,+0.33]看平，<-0.33看空。"),
         },
         "snapshot": {
             "score": _f(score, 4),
             "stance": stance,
             "stance_zh": stance_zh,
+            "advice": advice,
             "close": _f(row["close"], 2),
             "dims": dims,
             "indicators": indicators,
