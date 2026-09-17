@@ -36,11 +36,16 @@ OUT = os.path.join(OPT_DIR, "hs300_option_daily.parquet")
 UNDERLYING = "510300"
 
 
+_S = requests.Session()
+_S.trust_env = False          # WorkBuddy 环境注入系统代理会断国内源, 必须绕过
+_S.headers.update(UA)
+
+
 def _get(url: str, retries: int = 3) -> str:
     last = None
     for i in range(retries):
         try:
-            r = requests.get(url, headers=UA, timeout=20)
+            r = _S.get(url, timeout=20)
             r.raise_for_status()
             r.encoding = r.apparent_encoding or "gbk"
             return r.text
@@ -67,8 +72,8 @@ def _contract_months() -> list[str]:
     """返回形如 2609 的近月代码列表（最多 3 个近月）。"""
     url = ("https://stock.finance.sina.com.cn/futures/api/openapi.php/"
            "StockOptionService.getStockName?exchange=null&cate=300ETF&date=&contract=")
-    js = requests.get(url, headers={**UA, "Referer": "https://stock.finance.sina.com.cn"},
-                      timeout=20).json()
+    js = _S.get(url, headers={**UA, "Referer": "https://stock.finance.sina.com.cn"},
+                timeout=20).json()
     months = js.get("result", {}).get("data", {}).get("contractMonth") or []
     out = []
     for m in months:
