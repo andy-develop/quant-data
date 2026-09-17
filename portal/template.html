@@ -106,6 +106,10 @@ section + section{margin-top:34px}
 .score-tbl th{font-size:12px;color:var(--sub);font-weight:600;background:#F6FAFE}
 .score-tbl td.num{font-variant-numeric:tabular-nums;font-weight:600}
 .score-note{font-size:12px;color:var(--dim);margin-top:10px;line-height:1.6}
+.score-ver-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.score-ver-tabs button{appearance:none;border:1px solid var(--line);background:#F6FAFE;color:var(--ink2);border-radius:999px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer}
+.score-ver-tabs button.on{background:#2B6CB0;border-color:#2B6CB0;color:#fff}
+.score-ver-desc{font-size:12.5px;color:var(--ink2);line-height:1.55;margin:0 0 12px;padding:10px 12px;background:#F6FAFE;border:1px solid var(--line);border-radius:10px}
 .score-advice{margin-top:12px;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:#F6FAFE}
 .score-advice.bull{border-color:#F5C6C2;background:#FDF2F2}
 .score-advice.bear{border-color:#B7E0C2;background:#F1F9F3}
@@ -670,9 +674,14 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
     <div class="card" id="x-score-card">
       <div id="x-score-missing" style="display:none;font-size:13.5px;color:var(--warn)">综合打分数据未打包（请先运行 scripts/build_hs300_score.py）。</div>
       <div id="x-score-body">
+        <div class="score-ver-tabs" id="x-score-ver-tabs">
+          <button type="button" data-ver="v1" class="on">标准版</button>
+          <button type="button" data-ver="v2">震荡优化版</button>
+        </div>
+        <p class="score-ver-desc" id="x-score-ver-desc">—</p>
         <div class="score-hero">
           <div class="score-main">
-            <div class="lab">综合分</div>
+            <div class="lab" id="x-score-lab">综合分 · 标准版</div>
             <div class="big" id="x-score-big">—</div>
             <span class="stance mid" id="x-score-stance">—</span>
             <div class="score-bar"><div class="ptr" id="x-score-ptr" style="left:50%"></div></div>
@@ -686,7 +695,7 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
             </div>
             <table class="score-rules" id="x-score-rules">
               <thead><tr><th>综合技术得分</th><th>信号含义</th><th>操作倾向</th></tr></thead>
-              <tbody>
+              <tbody id="x-score-rules-body">
                 <tr data-band="bull"><td>&gt; +0.33</td><td>看多</td><td>市场偏强，考虑积极或持有</td></tr>
                 <tr data-band="mid"><td>−0.33 ~ +0.33</td><td>看平</td><td>多空均衡，视为震荡，观望或高抛低吸</td></tr>
                 <tr data-band="bear"><td>&lt; −0.33</td><td>看空</td><td>市场偏弱，考虑减仓或防御</td></tr>
@@ -696,7 +705,7 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
           </div>
         </div>
         <details class="score-details">
-          <summary>十项指标明细</summary>
+          <summary id="x-score-detail-sum">指标明细</summary>
           <div class="detail-body" style="padding-top:8px">
             <table class="score-tbl"><thead><tr><th>维度</th><th>指标</th><th>原始值</th><th>得分</th><th>方向</th></tr></thead><tbody id="x-score-tbody"></tbody></table>
           </div>
@@ -1339,6 +1348,9 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
   var secChartsInited = false;  // 行业轮动图表懒初始化
   var hsChartsInited = false;   // 沪深300 图表懒初始化
   var hsScoreChartsInited = false;
+  var hsScoreVer = (HS_SCORE && HS_SCORE.default_signal) || "v1";
+  var hsScoreHistChart = null;
+  var hsScoreRadarChart = null;
   var fmt = function(x, n){ n = n==null ? 0 : n; return Number(x).toLocaleString("zh-CN", {minimumFractionDigits:n, maximumFractionDigits:n}); };
   var pct1 = function(x){ return (x>0?"+":"") + fmt(x,1) + "%"; };
 
@@ -2068,6 +2080,49 @@ function renderHs300(){
   xbtDet.addEventListener("toggle", function(){ if (xbtDet.open) { setTimeout(initHs300Charts, 60); window.dispatchEvent(new Event("resize")); } });
   renderHs300Score();
 }
+function hsScoreActiveSignal(){
+  if (!HS_SCORE) return null;
+  if (HS_SCORE.signals && HS_SCORE.signals[hsScoreVer]) return HS_SCORE.signals[hsScoreVer];
+  // 旧 payload 兜底：仅有 snapshot（=v1）
+  var snap = HS_SCORE.snapshot || {};
+  return {
+    id: "v1",
+    name: "标准版",
+    title: "信号版本1（标准版）",
+    desc: "使用全部10个指标，阈值 ±0.33。",
+    stance_threshold: 0.33,
+    dims_used: ["price","volume","trend","volatility","crowd"],
+    n_indicators: (snap.indicators || []).length || 10,
+    score: snap.score,
+    stance: snap.stance,
+    stance_zh: snap.stance_zh,
+    advice: snap.advice,
+    band: null,
+    dims: snap.dims || [],
+    indicators: snap.indicators || [],
+    cold_start_indicators: snap.cold_start_indicators || []
+  };
+}
+function hsScoreBand(sc, th){
+  th = th == null ? 0.33 : +th;
+  if (th > 0) return sc > th ? "bull" : (sc < -th ? "bear" : "mid");
+  return sc > 0 ? "bull" : (sc < 0 ? "bear" : "mid");
+}
+function bindHs300ScoreTabs(){
+  var tabs = document.getElementById("x-score-ver-tabs");
+  if (!tabs || tabs._bound) return;
+  tabs._bound = true;
+  tabs.addEventListener("click", function(ev){
+    var btn = ev.target.closest("button[data-ver]");
+    if (!btn) return;
+    hsScoreVer = btn.getAttribute("data-ver") || "v1";
+    Array.prototype.forEach.call(tabs.querySelectorAll("button[data-ver]"), function(b){
+      b.classList.toggle("on", b.getAttribute("data-ver") === hsScoreVer);
+    });
+    renderHs300Score();
+    updateHs300ScoreCharts();
+  });
+}
 function renderHs300Score(){
   var miss = document.getElementById("x-score-missing");
   var body = document.getElementById("x-score-body");
@@ -2078,16 +2133,25 @@ function renderHs300Score(){
   }
   if (miss) miss.style.display = "none";
   if (body) body.style.display = "block";
-  var snap = HS_SCORE.snapshot;
-  var sc = snap.score == null ? 0 : +snap.score;
+  bindHs300ScoreTabs();
+
+  var sig = hsScoreActiveSignal();
+  var snapAll = HS_SCORE.snapshot;
+  var th = sig.stance_threshold == null ? 0.33 : +sig.stance_threshold;
+  var sc = sig.score == null ? 0 : +sig.score;
+  var band = sig.band || hsScoreBand(sc, th);
+  var stanceZh = sig.stance_zh || (band === "bull" ? "看多" : (band === "bear" ? "看空" : "看平"));
+  var advice = sig.advice || (band === "bull" ? "市场偏强，考虑积极或持有"
+    : (band === "bear" ? "市场偏弱，考虑减仓或防御" : "多空均衡，视为震荡，观望或高抛低吸"));
+
+  var lab = document.getElementById("x-score-lab");
+  if (lab) lab.textContent = "综合分 · " + (sig.name || hsScoreVer);
+  var desc = document.getElementById("x-score-ver-desc");
+  if (desc) desc.textContent = sig.desc || "—";
+
   var elBig = document.getElementById("x-score-big");
   elBig.textContent = (sc > 0 ? "+" : "") + sc.toFixed(2);
-  elBig.style.color = sc > 0.33 ? "var(--up)" : (sc < -0.33 ? "var(--down)" : "var(--ink)");
-  // 前端兜底：与 build_hs300_score 阈值一致（>+0.33 / [-0.33,+0.33] / <-0.33）
-  var band = sc > 0.33 ? "bull" : (sc < -0.33 ? "bear" : "mid");
-  var stanceZh = snap.stance_zh || (band === "bull" ? "看多" : (band === "bear" ? "看空" : "看平"));
-  var advice = snap.advice || (band === "bull" ? "市场偏强，考虑积极或持有"
-    : (band === "bear" ? "市场偏弱，考虑减仓或防御" : "多空均衡，视为震荡，观望或高抛低吸"));
+  elBig.style.color = band === "bull" ? "var(--up)" : (band === "bear" ? "var(--down)" : "var(--ink)");
   var st = document.getElementById("x-score-stance");
   st.textContent = stanceZh;
   st.className = "stance " + band;
@@ -2097,19 +2161,31 @@ function renderHs300Score(){
   var adv = document.getElementById("x-score-advice");
   if (adv) {
     adv.className = "score-advice " + band;
-    document.getElementById("x-score-advice-sig").textContent = "买卖建议 · " + stanceZh;
+    document.getElementById("x-score-advice-sig").textContent = "买卖建议 · " + stanceZh + "（" + (sig.name || "") + "）";
     document.getElementById("x-score-advice-act").textContent = advice;
   }
-  var rules = document.getElementById("x-score-rules");
-  if (rules) {
-    Array.prototype.forEach.call(rules.querySelectorAll("tbody tr"), function(tr){
+
+  var rulesBody = document.getElementById("x-score-rules-body");
+  if (rulesBody) {
+    if (th > 0) {
+      rulesBody.innerHTML =
+        '<tr data-band="bull"><td>&gt; +' + th.toFixed(2).replace(/0+$/,"").replace(/\.$/,"") + '</td><td>看多</td><td>市场偏强，考虑积极或持有</td></tr>' +
+        '<tr data-band="mid"><td>−' + th.toFixed(2).replace(/0+$/,"").replace(/\.$/,"") + ' ~ +' + th.toFixed(2).replace(/0+$/,"").replace(/\.$/,"") + '</td><td>看平</td><td>多空均衡，视为震荡，观望或高抛低吸</td></tr>' +
+        '<tr data-band="bear"><td>&lt; −' + th.toFixed(2).replace(/0+$/,"").replace(/\.$/,"") + '</td><td>看空</td><td>市场偏弱，考虑减仓或防御</td></tr>';
+    } else {
+      rulesBody.innerHTML =
+        '<tr data-band="bull"><td>&gt; 0</td><td>看多</td><td>市场偏强，考虑积极或持有</td></tr>' +
+        '<tr data-band="mid"><td>= 0</td><td>看平</td><td>多空均衡，视为震荡，观望或高抛低吸</td></tr>' +
+        '<tr data-band="bear"><td>&lt; 0</td><td>看空</td><td>市场偏弱，考虑减仓或防御</td></tr>';
+    }
+    Array.prototype.forEach.call(rulesBody.querySelectorAll("tr"), function(tr){
       tr.classList.toggle("on", tr.getAttribute("data-band") === band);
     });
   }
 
   var dimNames = {price:"价格", volume:"量能", trend:"趋势", volatility:"波动", crowd:"拥挤"};
   var dimsEl = document.getElementById("x-score-dims");
-  dimsEl.innerHTML = (snap.dims || []).map(function(d){
+  dimsEl.innerHTML = (sig.dims || []).map(function(d){
     var v = d.score == null ? null : +d.score;
     var txt = v == null ? "—" : ((v > 0 ? "+" : "") + v.toFixed(2));
     var col = v == null ? "var(--dim)" : (v > 0.15 ? "var(--up)" : (v < -0.15 ? "var(--down)" : "var(--ink)"));
@@ -2122,21 +2198,27 @@ function renderHs300Score(){
 
   var note = document.getElementById("x-score-note");
   var meth = HS_SCORE.method || {};
-  var proxyNote = snap.opt_iv_is_proxy ? " · 当日 IV 为已实现波动回退" : "";
-  var coldKeys = snap.cold_start_indicators || [];
+  var proxyNote = snapAll.opt_iv_is_proxy ? " · 当日 IV 为已实现波动回退" : "";
+  var coldKeys = sig.cold_start_indicators || [];
   var coldNote = "";
   if (coldKeys.length) {
-    var coldLabels = (snap.indicators || []).filter(function(it){ return coldKeys.indexOf(it.key) >= 0; })
+    var coldLabels = (sig.indicators || []).filter(function(it){ return coldKeys.indexOf(it.key) >= 0; })
       .map(function(it){ return it.label || it.key; });
     coldNote = " · 冷启动（有效历史&lt;" + (meth.min_history || 60) + "日，记 0）：" +
       (coldLabels.length ? coldLabels.join("、") : coldKeys.join("、"));
   }
-  note.innerHTML = "数据日 <b>" + (HS_SCORE.data_date || "—") + "</b> · 滚动 " + (meth.window || 756) +
-    " 日百分位映射到 [-1,+1]，五维等权" + proxyNote + coldNote +
-    "。<br>信号阈值 ±0.33：看多 / 看平 / 看空；与上方四态仓位机信号独立，仅作技术面操作倾向参考。";
+  var nInd = sig.n_indicators || (sig.indicators || []).length || "—";
+  var thNote = th > 0 ? ("阈值 ±" + th) : "阈值 0（按正负号）";
+  note.innerHTML = "数据日 <b>" + (HS_SCORE.data_date || "—") + "</b> · " + (sig.title || sig.name || "") +
+    " · " + nInd + " 指标等权 · 滚动 " + (meth.window || 756) +
+    " 日百分位 → [-1,+1]" + proxyNote + coldNote +
+    "。<br>" + thNote + "：看多 / 看平 / 看空；与上方四态仓位机信号独立，仅作技术面操作倾向参考。";
+
+  var sum = document.getElementById("x-score-detail-sum");
+  if (sum) sum.textContent = (sig.id === "v2" ? "六项" : "十项") + "指标明细（" + (sig.name || "") + "）";
 
   var tbody = document.getElementById("x-score-tbody");
-  tbody.innerHTML = (snap.indicators || []).map(function(it){
+  tbody.innerHTML = (sig.indicators || []).map(function(it){
     var raw = it.raw == null ? "—" : (typeof it.raw === "number" ? it.raw.toFixed(2) + (it.unit || "") : it.raw);
     var s = it.score == null ? "—" : ((it.score > 0 ? "+" : "") + (+it.score).toFixed(2));
     if (it.cold_start) s += " <span style='color:var(--warn);font-weight:500'>冷启动</span>";
@@ -2146,6 +2228,39 @@ function renderHs300Score(){
       "</td><td class='num'>" + raw + "</td><td class='num' style='" + scol + "'>" + s +
       "</td><td>" + dir + "</td></tr>";
   }).join("");
+
+  var tabs = document.getElementById("x-score-ver-tabs");
+  if (tabs) {
+    Array.prototype.forEach.call(tabs.querySelectorAll("button[data-ver]"), function(b){
+      b.classList.toggle("on", b.getAttribute("data-ver") === hsScoreVer);
+      // 无 v2 数据时禁用
+      if (b.getAttribute("data-ver") === "v2" && !(HS_SCORE.signals && HS_SCORE.signals.v2)) {
+        b.disabled = true;
+        b.title = "当前 payload 尚未包含震荡优化版";
+      }
+    });
+  }
+}
+function updateHs300ScoreCharts(){
+  if (!hsScoreChartsInited || !HS_SCORE || !HS_SCORE.series) return;
+  if (!hsScoreHistChart && !hsScoreRadarChart) return;
+  var sig = hsScoreActiveSignal();
+  var dimOrder = (sig && sig.dims_used && sig.dims_used.length)
+    ? sig.dims_used.slice()
+    : ["price","volume","trend","volatility","crowd"];
+  var dimLabel = {price:"价格", volume:"量能", trend:"趋势", volatility:"波动", crowd:"拥挤"};
+  var byKey = {};
+  ((sig && sig.dims) || []).forEach(function(d){ byKey[d.key] = d.score; });
+  var radarVals = dimOrder.map(function(k){ var v = byKey[k]; return v == null ? 0 : +v; });
+  if (hsScoreRadarChart) {
+    hsScoreRadarChart.setOption({
+      title:{text: (sig && sig.id === "v2" ? "三维雷达" : "五维雷达")},
+      radar:{
+        indicator: dimOrder.map(function(k){ return {name: dimLabel[k], max:1, min:-1}; })
+      },
+      series:[{ data:[{ value: radarVals, name:"维度分" }] }]
+    });
+  }
 }
 function initHs300ScoreCharts(){
   if (hsScoreChartsInited) return;
@@ -2161,36 +2276,41 @@ function initHs300ScoreCharts(){
   var ser = HS_SCORE.series;
   var dates = ser.map(function(r){ return r.d; });
   var scores = ser.map(function(r){ return r.s; });
-  var c1 = echarts.init(histEl);
-  c1.setOption({
+  var scores2 = ser.map(function(r){ return r.s2 == null ? null : r.s2; });
+  var hasV2 = scores2.some(function(v){ return v != null; });
+  hsScoreHistChart = echarts.init(histEl);
+  hsScoreHistChart.setOption({
     backgroundColor:"transparent",
     title:{text:"综合分走势", left:0, top:0, textStyle:{fontSize:13, color:"#2B4A6F", fontWeight:600}},
     tooltip:{trigger:"axis", confine:true, backgroundColor:"#FFFFFF", borderColor:"#DDE8F4", textStyle:{color:"#16324F",fontSize:12}},
-    grid:{left:40, right:12, top:32, bottom:22, containLabel:true},
+    legend:{data: hasV2 ? ["标准版","震荡优化版"] : ["标准版"], top:0, right:0, textStyle:{color:"#5B7BA3",fontSize:11}, itemWidth:12, itemHeight:8},
+    grid:{left:40, right:12, top:36, bottom:22, containLabel:true},
     dataZoom:[{type:"inside", start:70, end:100},{type:"slider", start:70, end:100, height:12, bottom:0, borderColor:"#DDE8F4", backgroundColor:"#F6FAFE", fillerColor:"rgba(43,108,176,0.15)", textStyle:{color:"#8AA3C0",fontSize:10}}],
     xAxis:{type:"category", data:dates, axisLabel:{color:"#8AA3C0", fontSize:10, hideOverlap:true}, axisLine:{lineStyle:{color:"#DDE8F4"}}},
     yAxis:{type:"value", min:-1, max:1, axisLabel:{color:"#8AA3C0", fontSize:10}, splitLine:{lineStyle:{color:"#EEF4FA"}},
       axisLine:{show:true, lineStyle:{color:"#DDE8F4"}}},
     series:[{
-      name:"综合分", type:"line", data:scores, showSymbol:false, smooth:true,
+      name:"标准版", type:"line", data:scores, showSymbol:false, smooth:true,
       lineStyle:{width:1.8, color:"#2B6CB0"},
-      areaStyle:{color:{type:"linear", x:0, y:0, x2:0, y2:1, colorStops:[
-        {offset:0, color:"rgba(224,68,60,0.18)"},{offset:0.5, color:"rgba(43,108,176,0.06)"},{offset:1, color:"rgba(22,163,74,0.18)"}
-      ]}},
       markLine:{silent:true, symbol:"none", data:[{yAxis:0, lineStyle:{color:"#8AA3C0", type:"dashed", width:1}}], label:{show:false}}
-    }]
+    }].concat(hasV2 ? [{
+      name:"震荡优化版", type:"line", data:scores2, showSymbol:false, smooth:true,
+      lineStyle:{width:1.6, color:"#C05621"}
+    }] : [])
   });
 
-  var snap = HS_SCORE.snapshot;
-  var dimOrder = ["price","volume","trend","volatility","crowd"];
+  var sig = hsScoreActiveSignal();
+  var dimOrder = (sig && sig.dims_used && sig.dims_used.length)
+    ? sig.dims_used.slice()
+    : ["price","volume","trend","volatility","crowd"];
   var dimLabel = {price:"价格", volume:"量能", trend:"趋势", volatility:"波动", crowd:"拥挤"};
   var byKey = {};
-  (snap.dims || []).forEach(function(d){ byKey[d.key] = d.score; });
+  ((sig && sig.dims) || (HS_SCORE.snapshot && HS_SCORE.snapshot.dims) || []).forEach(function(d){ byKey[d.key] = d.score; });
   var radarVals = dimOrder.map(function(k){ var v = byKey[k]; return v == null ? 0 : +v; });
-  var c2 = echarts.init(radarEl);
-  c2.setOption({
+  hsScoreRadarChart = echarts.init(radarEl);
+  hsScoreRadarChart.setOption({
     backgroundColor:"transparent",
-    title:{text:"五维雷达", left:0, top:0, textStyle:{fontSize:13, color:"#2B4A6F", fontWeight:600}},
+    title:{text: (sig && sig.id === "v2" ? "三维雷达" : "五维雷达"), left:0, top:0, textStyle:{fontSize:13, color:"#2B4A6F", fontWeight:600}},
     tooltip:{},
     radar:{
       indicator: dimOrder.map(function(k){ return {name: dimLabel[k], max:1, min:-1}; }),

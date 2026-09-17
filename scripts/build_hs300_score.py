@@ -2,12 +2,17 @@
 # -*- coding: utf-8 -*-
 """沪深300 ETF 择时 · 五维综合打分 [-1, +1]。
 
-维度与入选指标（等权合成维度分，五维再等权得综合分）：
+维度与入选指标（等权合成维度分，再等权得综合分）：
   价格  20日价格乖离率、20日布林带(%B)
   量能  20日换手率乖离率、60日换手率乖离率
   趋势  20日ADX（带方向）、20日创新高天数占比
   波动  期权隐含波动率、60日换手率波动
   拥挤  涨停占比5日均值、期权持仓量PCR均值
+
+信号版本：
+  v1 标准版：五维 10 指标，阈值 ±0.33（合理区间约 0.25~0.35；擅长大趋势）
+  v2 震荡优化版：剔除量/价 4 因子，仅趋势+波动+拥挤 6 因子，阈值 ±0.20
+      （合理区间约 0.15~0.25；胜率更高、更适用震荡市；忌阈值 0 过拟合切换）
 
 标准化：各原始指标在滚动 756 交易日（约 3 年）窗口内做百分位 → 映射到 [-1,+1]
   score = 2 * percentile_rank - 1
@@ -66,6 +71,39 @@ DIMS = {
     "crowd": {
         "name": "拥挤",
         "indicators": ["zt_ratio5", "oi_pcr"],
+    },
+}
+
+# 信号版本：阈值经 2016-09-08 起约10年 H00300 回测 + WF 体检
+# （见 engine/hs300_score_sensitivity.py）；取平台中段，避免伪半仓尖峰
+SIGNAL_SPECS = {
+    "v1": {
+        "id": "v1",
+        "name": "标准版",
+        "title": "信号版本1（标准版）",
+        "desc": (
+            "使用全部10个指标。更擅长捕捉大趋势行情（如2014-2015年、2024年9月）。"
+            "但在震荡市中表现相对较差，属于「震荡行情小亏，趋势行情多赚」的典型特征。"
+            "阈值 ±0.33（合理区间 0.25~0.35；≥0.40 易退化成常驻看平）。"
+        ),
+        "dims": ["price", "volume", "trend", "volatility", "crowd"],
+        "threshold": 0.33,
+        "threshold_range": [0.25, 0.35],
+        "score_col": "score",
+    },
+    "v2": {
+        "id": "v2",
+        "name": "震荡优化版",
+        "title": "信号版本2（震荡优化版）",
+        "desc": (
+            "剔除量、价维度的4个因子，仅保留趋势、波动、拥挤维度的6个因子，阈值 ±0.20。"
+            "提高了胜率、降低了赔率，收益稳定性更好，更适用于震荡市。"
+            "合理区间 0.15~0.25；阈值 0（按正负号）切换过频，十年回测偏弱。"
+        ),
+        "dims": ["trend", "volatility", "crowd"],
+        "threshold": 0.20,
+        "threshold_range": [0.15, 0.25],
+        "score_col": "score_v2",
     },
 }
 
@@ -306,8 +344,9 @@ def score_frame(df: pd.DataFrame) -> pd.DataFrame:
         cols = [f"s_{k}" for k in meta["indicators"]]
         out[f"d_{dim}"] = out[cols].mean(axis=1, skipna=True)
 
-    dim_cols = [f"d_{k}" for k in DIMS]
-    out["score"] = out[dim_cols].mean(axis=1, skipna=True)
+    # v1：五维等权；v2：仅趋势/波动/拥挤三维等权
+    out["score"] = out[[f"d_{k}" for k in SIGNAL_SPECS["v1"]["dims"]]].mean(axis=1, skipna=True)
+    out["score_v2"] = out[[f"d_{k}" for k in SIGNAL_SPECS["v2"]["dims"]]].mean(axis=1, skipna=True)
     out["opt_iv_is_proxy"] = df["opt_iv_is_proxy"]
     return out
 
@@ -319,6 +358,45 @@ def _f(x, nd=4):
         return round(float(x), nd)
     except (TypeError, ValueError):
         return None
+
+
+def _stance_from_score(score: float, threshold: float) -> tuple[str, str, str, str]:
+    """返回 (stance, stance_zh, advice, band)。
+
+    threshold>0：死区 [-th, +th] 为看平；threshold==0：仅按正负号分多空。
+    """
+    th = float(threshold)
+    if score > th:
+        return "bullish", "看多", "市场偏强，考虑积极或持有", "bull"
+    if score < -th if th > 0 else score < 0:
+        return "bearish", "看空", "市场偏弱，考虑减仓或防御", "bear"
+    return "neutral", "看平", "多空均衡，视为震荡，观望或高抛低吸", "mid"
+
+
+def _signal_snapshot(row: pd.Series, spec: dict, all_indicators: list, all_dims: list) -> dict:
+    """按版本裁剪维度/指标，并打 stance。"""
+    dim_keys = set(spec["dims"])
+    ind_keys = {k for d in spec["dims"] for k in DIMS[d]["indicators"]}
+    score = float(row[spec["score_col"]])
+    stance, stance_zh, advice, band = _stance_from_score(score, spec["threshold"])
+    cold_keys = [it["key"] for it in all_indicators if it["key"] in ind_keys and it.get("cold_start")]
+    return {
+        "id": spec["id"],
+        "name": spec["name"],
+        "title": spec["title"],
+        "desc": spec["desc"],
+        "stance_threshold": spec["threshold"],
+        "dims_used": list(spec["dims"]),
+        "n_indicators": len(ind_keys),
+        "score": _f(score, 4),
+        "stance": stance,
+        "stance_zh": stance_zh,
+        "advice": advice,
+        "band": band,
+        "dims": [d for d in all_dims if d["key"] in dim_keys],
+        "indicators": [it for it in all_indicators if it["key"] in ind_keys],
+        "cold_start_indicators": cold_keys,
+    }
 
 
 def latest_payload(scored: pd.DataFrame, opt_days: int = 0) -> dict:
@@ -351,6 +429,16 @@ def latest_payload(scored: pd.DataFrame, opt_days: int = 0) -> dict:
             "indicators": meta["indicators"],
         })
 
+    signals = {
+        sid: _signal_snapshot(row, spec, indicators, dims)
+        for sid, spec in SIGNAL_SPECS.items()
+    }
+    # 兼容旧前端：snapshot = v1
+    v1 = signals["v1"]
+    stance, stance_zh, advice, _band = (
+        v1["stance"], v1["stance_zh"], v1["advice"], v1["band"]
+    )
+
     # 历史序列（截断）
     keep_from = pd.Timestamp(row["date"]) - pd.DateOffset(years=PAYLOAD_KEEP_YEARS)
     hist = scored[scored["date"] >= keep_from].copy()
@@ -361,6 +449,7 @@ def latest_payload(scored: pd.DataFrame, opt_days: int = 0) -> dict:
         series.append({
             "d": r["date"].strftime("%Y-%m-%d"),
             "s": _f(r["score"], 4),
+            "s2": _f(r.get("score_v2"), 4),
             "price": _f(r.get("d_price"), 4),
             "volume": _f(r.get("d_volume"), 4),
             "trend": _f(r.get("d_trend"), 4),
@@ -369,36 +458,37 @@ def latest_payload(scored: pd.DataFrame, opt_days: int = 0) -> dict:
             "px": _f(r["close"], 2),
         })
 
-    score = float(row["score"])
-    # 买卖建议阈值：> +0.33 看多；[-0.33,+0.33] 看平；< -0.33 看空
-    if score > 0.33:
-        stance, stance_zh = "bullish", "看多"
-        advice = "市场偏强，考虑积极或持有"
-    elif score < -0.33:
-        stance, stance_zh = "bearish", "看空"
-        advice = "市场偏弱，考虑减仓或防御"
-    else:
-        stance, stance_zh = "neutral", "看平"
-        advice = "多空均衡，视为震荡，观望或高抛低吸"
-
     return {
         "generated_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "data_date": row["date"].strftime("%Y-%m-%d"),
-        "version": "v1.2",
+        "version": "v1.3",
+        "default_signal": "v1",
         "method": {
             "range": [-1, 1],
             "window": ROLL,
             "min_history": MIN_HISTORY,
             "agg": "equal_weight",
-            "stance_threshold": 0.33,
+            "stance_threshold": SIGNAL_SPECS["v1"]["threshold"],
+            "signals": {
+                sid: {
+                    "name": sp["name"],
+                    "title": sp["title"],
+                    "dims": sp["dims"],
+                    "threshold": sp["threshold"],
+                    "threshold_range": sp.get("threshold_range"),
+                    "n_indicators": sum(len(DIMS[d]["indicators"]) for d in sp["dims"]),
+                }
+                for sid, sp in SIGNAL_SPECS.items()
+            },
             "note": ("滚动3年百分位映射到[-1,+1]；价格/量能/换手波动/涨停取反；"
                      "趋势与恐慌类(IV/PCR)正向。换手用指数成交额代理；"
                      "IV缺历史时用20日已实现波动回退；"
                      f"有效历史<{MIN_HISTORY}交易日的指标强制记0并标记cold_start。"
-                     "信号：>+0.33看多，[-0.33,+0.33]看平，<-0.33看空。"),
+                     "v1阈值±0.33（区间0.25~0.35）；v2去量价、阈值±0.20（区间0.15~0.25）。"),
         },
+        "signals": signals,
         "snapshot": {
-            "score": _f(score, 4),
+            "score": v1["score"],
             "stance": stance,
             "stance_zh": stance_zh,
             "advice": advice,
@@ -408,6 +498,11 @@ def latest_payload(scored: pd.DataFrame, opt_days: int = 0) -> dict:
             "cold_start_indicators": cold_keys,
             "opt_iv_is_proxy": bool(row.get("opt_iv_is_proxy", False)),
             "option_history_days": int(opt_days),
+            # 冗余字段，便于旧逻辑读取 v2
+            "score_v2": signals["v2"]["score"],
+            "stance_v2": signals["v2"]["stance"],
+            "stance_zh_v2": signals["v2"]["stance_zh"],
+            "advice_v2": signals["v2"]["advice"],
         },
         "series": series,
     }
@@ -429,8 +524,10 @@ def build() -> dict:
     payload = latest_payload(scored, opt_days=len(opt))
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, separators=(",", ":"))
-    print(f"hs300_score: score={payload['snapshot']['score']} "
-          f"stance={payload['snapshot']['stance_zh']} "
+    v1 = payload["signals"]["v1"]
+    v2 = payload["signals"]["v2"]
+    print(f"hs300_score: v1={v1['score']} {v1['stance_zh']} | "
+          f"v2={v2['score']} {v2['stance_zh']} | "
           f"series={len(payload['series'])} → {OUT}")
     return payload
 

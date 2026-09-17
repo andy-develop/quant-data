@@ -62,6 +62,18 @@ class TestHs300Score(unittest.TestCase):
         r2 = S._nh_ratio(high2, 20)
         self.assertAlmostEqual(r2.iloc[-1], 0.0)
 
+    def test_stance_threshold_v1_and_v2(self):
+        s, zh, _, band = S._stance_from_score(0.34, 0.33)
+        self.assertEqual((s, zh, band), ("bullish", "看多", "bull"))
+        s, zh, _, band = S._stance_from_score(0.10, 0.33)
+        self.assertEqual((s, zh, band), ("neutral", "看平", "mid"))
+        s, zh, _, band = S._stance_from_score(0.10, 0.0)
+        self.assertEqual((s, zh, band), ("bullish", "看多", "bull"))
+        s, zh, _, band = S._stance_from_score(-0.01, 0.0)
+        self.assertEqual((s, zh, band), ("bearish", "看空", "bear"))
+        s, zh, _, band = S._stance_from_score(0.0, 0.0)
+        self.assertEqual((s, zh, band), ("neutral", "看平", "mid"))
+
     def test_payload_schema_if_present(self):
         path = os.path.join(REPO, "data", "payload", "hs300_score.json")
         if not os.path.exists(path):
@@ -77,6 +89,16 @@ class TestHs300Score(unittest.TestCase):
         if snap["score"] is not None:
             self.assertGreaterEqual(snap["score"], -1)
             self.assertLessEqual(snap["score"], 1)
+        if "signals" in p:
+            self.assertIn("v1", p["signals"])
+            self.assertIn("v2", p["signals"])
+            v2 = p["signals"]["v2"]
+            self.assertEqual(v2["stance_threshold"], 0.20)
+            self.assertEqual(set(v2["dims_used"]), {"trend", "volatility", "crowd"})
+            self.assertEqual(len(v2["indicators"]), 6)
+            self.assertEqual(len(v2["dims"]), 3)
+            if p["series"]:
+                self.assertIn("s2", p["series"][-1])
 
 
 if __name__ == "__main__":
