@@ -128,16 +128,54 @@ jobs:
             git push
           fi
 
+      - name: Prepare GitHub Pages site
+        # 静态站：index.html（已注入 payload）+ 本地 echarts；.nojekyll 避免 Jekyll 处理
+        # 须在 HSK 发布前准备：花生壳需整目录上传（含 echarts.min.js），否则图表脚本 404
+        run: |
+          rm -rf _site
+          mkdir -p _site
+          cp portal/index.html portal/echarts.min.js _site/
+          touch _site/.nojekyll
+          # 持久化稳定 Pages URL（项目站，不漂移）
+          python3 - <<'EOF'
+          import json, hashlib, os, re
+          html = open("portal/index.html", "rb").read()
+          text = html.decode("utf-8", "ignore")
+          sha = hashlib.sha256(re.sub(rb'"generated_at"\s*:\s*"[^"]*"', b'"generated_at":""', html)).hexdigest()
+          m = re.search(rb'<script id="PAYLOAD" type="application/json">(.*?)</script>', html, re.S)
+          payload = json.loads(m.group(1)) if m else {}
+          wm = re.search(r'var WEATHER = (\{.*?\});', text, re.S)
+          tm = re.search(r'var TIMING_DB = (\{.*?\});', text, re.S)
+          wdd = json.loads(wm.group(1)).get("data_date") if wm else None
+          tdd = json.loads(tm.group(1)).get("data_date") if tm else None
+          hs = (payload.get("hs300_score") or {}).get("data_date") or (payload.get("hs300_score") or {}).get("snapshot", {}).get("data_date")
+          rec = {
+              "url": "https://andy-develop.github.io/quant-data/",
+              "data_date": f"{payload.get('snapshot', {}).get('data_date')}|{payload.get('sector', {}).get('data_date')}|{payload.get('hs300', {}).get('snapshot', {}).get('data_date')}|{hs}|{wdd}|{tdd}",
+              "content_sha": sha,
+          }
+          os.makedirs("data", exist_ok=True)
+          json.dump(rec, open("data/pages-resource.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+          print("Pages 资源记录:", rec)
+          EOF
+          git add data/pages-resource.json
+          git -c user.name="quant-data-bot" -c user.email="actions@users.noreply.github.com" \
+            commit -m "chore(pages): persist portal pages url [skip ci]" -q \
+            && git pull --rebase origin main -q \
+            && git push -q origin HEAD \
+            && echo "Pages 资源记录已提交" || echo "Pages 资源记录无变化/无需提交"
+
       - name: Publish to HSK file hosting (overwrite)
-        working-directory: quant-data/portal
+        # hsk-cli ≥0.7.24 已移除 --resource-id；更新功能常 403，默认新建资源并持久化 URL
+        working-directory: quant-data
         run: |
           npm install -g @aweray/hsk-cli >/dev/null 2>&1
           export PATH="$PATH:$(npm prefix -g)/bin"
           hsk-cli api-key set --scene file_hosting --key "$HSK_API_KEY" >/dev/null 2>&1
-          # 无变化跳过发布：三端 data_date + 大盘天气/择时回测 data_date + 归一化内容指纹
+          # 无变化跳过发布：三端+打分 data_date + 大盘天气/择时回测 + 归一化内容指纹
           NEED_PUBLISH=$(python3 - <<'EOF'
           import json, os, re, hashlib
-          raw = open("index.html", "rb").read()
+          raw = open("_site/index.html", "rb").read()
           text = raw.decode("utf-8", "ignore")
           norm = re.sub(rb'"generated_at"\s*:\s*"[^"]*"', b'"generated_at":""', raw)
           sha = hashlib.sha256(norm).hexdigest()
@@ -147,11 +185,12 @@ jobs:
           tm = re.search(r'var TIMING_DB = (\{.*?\});', text, re.S)
           wdd = json.loads(wm.group(1)).get("data_date") if wm else None
           tdd = json.loads(tm.group(1)).get("data_date") if tm else None
-          dd = f"{payload.get('snapshot', {}).get('data_date')}|{payload.get('sector', {}).get('data_date')}|{payload.get('hs300', {}).get('snapshot', {}).get('data_date')}|{wdd}|{tdd}"
+          hs = (payload.get("hs300_score") or {}).get("data_date") or (payload.get("hs300_score") or {}).get("snapshot", {}).get("data_date")
+          dd = f"{payload.get('snapshot', {}).get('data_date')}|{payload.get('sector', {}).get('data_date')}|{payload.get('hs300', {}).get('snapshot', {}).get('data_date')}|{hs}|{wdd}|{tdd}"
           print("本次构建 data_date:", dd, "/ content_sha:", sha[:12])
           skip = False
-          if os.path.exists("../data/hsk-resource.json"):
-              old = json.load(open("../data/hsk-resource.json", encoding="utf-8"))
+          if os.path.exists("data/hsk-resource.json"):
+              old = json.load(open("data/hsk-resource.json", encoding="utf-8"))
               if old.get("data_date") == dd and old.get("content_sha") == sha:
                   print(f"数据与页面结构均未变化，跳过发布（复用 {old.get('url')}）")
                   skip = True
@@ -159,19 +198,10 @@ jobs:
           EOF
           )
           if [ "$(echo "$NEED_PUBLISH" | tail -1)" = "YES" ]; then echo "跳过 HSK 发布"; exit 0; fi
-          # 复用已持久化的资源（首次运行且未配 HSK_RESOURCE_ID 时自动创建新资源）
-          RES_ID="${HSK_RESOURCE_ID:-}"
-          if [ -f ../data/hsk-resource.json ]; then
-            RES_ID=$(python3 -c "import json; print(json.load(open('../data/hsk-resource.json'))['resource_id'])" 2>/dev/null) || true
-            echo "复用持久化资源: $RES_ID"
-          fi
-          # set -e 陷阱：hsk-cli 403 时退出码非 0，必须 || true 保住后续 fallback
-          out=$(hsk-cli +host index.html --resource-id "$RES_ID" --format json 2>&1) || true; echo "$out"
-          if echo "$out" | grep -q '11301002\|update function is disabled'; then
-            echo "== 资源更新被禁用（403 11301002），创建新资源 =="
-            out=$(hsk-cli host index.html --api-key "$HSK_API_KEY" --format json 2>&1) || true; echo "$out"
-          fi
-          # 解析并持久化资源 ID/URL（新资源或成功更新均可）
+          # HSK 更新常被禁用（403）；CLI ≥0.7.24 已无 --resource-id。
+          # 每次内容变更直接新建整站资源（_site 含 echarts），URL 写入 hsk-resource.json。
+          out=$(hsk-cli file-hosting _site --entry-file index.html --api-key "$HSK_API_KEY" --format json 2>&1) || true
+          echo "$out"
           echo "$out" > /tmp/hsk-out.txt || true
           python3 - <<'EOF'
           import json, os, re, hashlib
@@ -183,33 +213,32 @@ jobs:
           rec = {}
           if um: rec["url"] = um.group(1) if um.lastindex else um.group(0).rstrip('",)}')
           if rid: rec["resource_id"] = rid.group(1)
-          html = open("index.html", encoding="utf-8").read()
+          html = open("_site/index.html", encoding="utf-8").read()
           payload = json.loads(re.search(r'<script id="PAYLOAD" type="application/json">(.*?)</script>', html, re.S).group(1))
           wm = re.search(r'var WEATHER = (\{.*?\});', html, re.S)
           tm = re.search(r'var TIMING_DB = (\{.*?\});', html, re.S)
           wdd = json.loads(wm.group(1)).get("data_date") if wm else None
           tdd = json.loads(tm.group(1)).get("data_date") if tm else None
-          rec["data_date"] = f"{payload.get('snapshot', {}).get('data_date')}|{payload.get('sector', {}).get('data_date')}|{payload.get('hs300', {}).get('snapshot', {}).get('data_date')}|{wdd}|{tdd}"
-          rec["content_sha"] = hashlib.sha256(re.sub(rb'"generated_at"\s*:\s*"[^"]*"', b'"generated_at":""', open("index.html", "rb").read())).hexdigest()
+          hs = (payload.get("hs300_score") or {}).get("data_date") or (payload.get("hs300_score") or {}).get("snapshot", {}).get("data_date")
+          rec["data_date"] = f"{payload.get('snapshot', {}).get('data_date')}|{payload.get('sector', {}).get('data_date')}|{payload.get('hs300', {}).get('snapshot', {}).get('data_date')}|{hs}|{wdd}|{tdd}"
+          rec["content_sha"] = hashlib.sha256(re.sub(rb'"generated_at"\s*:\s*"[^"]*"', b'"generated_at":""', open("_site/index.html", "rb").read())).hexdigest()
           if not rec.get("url") or not rec.get("resource_id"):
               raise SystemExit(f"无法从 hsk-cli 输出解析资源 URL/ID: {out[:400]}")
-          if os.path.exists("../data/hsk-resource.json"):
-              old = json.load(open("../data/hsk-resource.json", encoding="utf-8"))
+          if os.path.exists("data/hsk-resource.json"):
+              old = json.load(open("data/hsk-resource.json", encoding="utf-8"))
               if old.get("url") == rec.get("url") and old.get("resource_id") == rec.get("resource_id") and old.get("data_date") == rec.get("data_date") and old.get("content_sha") == rec.get("content_sha"):
                   print("资源未变化:", rec.get("url"))
                   raise SystemExit(0)
-          json.dump(rec, open("../data/hsk-resource.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+          json.dump(rec, open("data/hsk-resource.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
           print("持久化资源:", rec)
           EOF
-          cd ..
           git add data/hsk-resource.json
           git -c user.name="quant-data-bot" -c user.email="actions@users.noreply.github.com" commit -m "chore(hsk): persist portal resource [skip ci]" -q && git push -q origin HEAD && echo "资源记录已提交" || echo "资源记录无变化/无需提交"
         env:
           HSK_API_KEY: ${{ secrets.HSK_API_KEY }}
-          HSK_RESOURCE_ID: ${{ secrets.HSK_RESOURCE_ID }}
 
       - name: Verify HSK published page
-        # 发布后验证：HSK 线上 PAYLOAD / WEATHER / TIMING_DB 的 data_date 必须与本地一致
+        # 发布后验证：HSK 线上 PAYLOAD / WEATHER / TIMING_DB / hs300_score 必须与本地一致
         run: |
           python3 - <<'EOF'
           import json, os, re, urllib.request
@@ -233,6 +262,13 @@ jobs:
               print(f"[{label}] 沪深300 data_date: 本地 {lh} / 线上 {oh}")
               if lh != oh:
                   ok = False
+              ls = (local.get("hs300_score") or {}).get("data_date") or (local.get("hs300_score") or {}).get("snapshot", {}).get("data_date")
+              os_ = (online.get("hs300_score") or {}).get("data_date") or (online.get("hs300_score") or {}).get("snapshot", {}).get("data_date")
+              print(f"[{label}] 综合打分 data_date: 本地 {ls} / 线上 {os_}")
+              if not online.get("hs300_score"):
+                  ok = False
+              elif ls != os_:
+                  ok = False
               for var, name in (("WEATHER", "大盘天气"), ("TIMING_DB", "择时回测")):
                   lm = re.search(rf'var {var} = (\{{.*?\}});', local_html, re.S)
                   om = re.search(rf'var {var} = (\{{.*?\}});', html, re.S)
@@ -241,6 +277,9 @@ jobs:
                   print(f"[{label}] {name} data_date: 本地 {lv} / 线上 {ov}")
                   if lv != ov:
                       ok = False
+              if "综合打分" not in html:
+                  print(f"[{label}] 缺少「综合打分」区块")
+                  ok = False
               if not ok:
                   raise SystemExit(f"[{label}] 发布验证失败：线上数据未更新")
               print(f"[{label}] 发布验证通过")
@@ -254,41 +293,6 @@ jobs:
           local_html = open("portal/index.html", encoding="utf-8").read()
           verify(url, "HSK", local_html)
           EOF
-
-      - name: Prepare GitHub Pages site
-        # 静态站：index.html（已注入 payload）+ 本地 echarts；.nojekyll 避免 Jekyll 处理
-        run: |
-          rm -rf _site
-          mkdir -p _site
-          cp portal/index.html portal/echarts.min.js _site/
-          touch _site/.nojekyll
-          # 持久化稳定 Pages URL（项目站，不漂移）
-          python3 - <<'EOF'
-          import json, hashlib, os, re
-          html = open("portal/index.html", "rb").read()
-          text = html.decode("utf-8", "ignore")
-          sha = hashlib.sha256(re.sub(rb'"generated_at"\s*:\s*"[^"]*"', b'"generated_at":""', html)).hexdigest()
-          m = re.search(rb'<script id="PAYLOAD" type="application/json">(.*?)</script>', html, re.S)
-          payload = json.loads(m.group(1)) if m else {}
-          wm = re.search(r'var WEATHER = (\{.*?\});', text, re.S)
-          tm = re.search(r'var TIMING_DB = (\{.*?\});', text, re.S)
-          wdd = json.loads(wm.group(1)).get("data_date") if wm else None
-          tdd = json.loads(tm.group(1)).get("data_date") if tm else None
-          rec = {
-              "url": "https://andy-develop.github.io/quant-data/",
-              "data_date": f"{payload.get('snapshot', {}).get('data_date')}|{payload.get('sector', {}).get('data_date')}|{payload.get('hs300', {}).get('snapshot', {}).get('data_date')}|{wdd}|{tdd}",
-              "content_sha": sha,
-          }
-          os.makedirs("data", exist_ok=True)
-          json.dump(rec, open("data/pages-resource.json", "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-          print("Pages 资源记录:", rec)
-          EOF
-          git add data/pages-resource.json
-          git -c user.name="quant-data-bot" -c user.email="actions@users.noreply.github.com" \
-            commit -m "chore(pages): persist portal pages url [skip ci]" -q \
-            && git pull --rebase origin main -q \
-            && git push -q origin HEAD \
-            && echo "Pages 资源记录已提交" || echo "Pages 资源记录无变化/无需提交"
 
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v3
@@ -351,7 +355,8 @@ jobs:
           m = re.search(r'<script id="PAYLOAD" type="application/json">(.*?)</script>', html, re.S)
           if m:
               online = json.loads(m.group(1))
-          od = f"{online.get('snapshot', {}).get('data_date')}|{online.get('sector', {}).get('data_date')}|{online.get('hs300', {}).get('snapshot', {}).get('data_date')}"
+          hs = (online.get("hs300_score") or {}).get("data_date") or (online.get("hs300_score") or {}).get("snapshot", {}).get("data_date")
+          od = f"{online.get('snapshot', {}).get('data_date')}|{online.get('sector', {}).get('data_date')}|{online.get('hs300', {}).get('snapshot', {}).get('data_date')}|{hs}"
           wm = re.search(r'var WEATHER = (\{.*?\});', html, re.S)
           tm = re.search(r'var TIMING_DB = (\{.*?\});', html, re.S)
           wdd = json.loads(wm.group(1)).get("data_date") if wm else None
@@ -359,6 +364,8 @@ jobs:
           online_dd = f"{od}|{wdd}|{tdd}"
           print(f"[Pages] 线上 data_date: {online_dd}")
           print(f"[Pages] page_url: {PAGES_URL}")
+          if "综合打分" not in html or not online.get("hs300_score"):
+              raise SystemExit("[Pages] 缺少综合打分 hs300_score")
           if local_dd and online_dd != local_dd:
               raise SystemExit(f"[Pages] data_date 不一致: 期望 {local_dd} / 线上 {online_dd}")
           print("[Pages] 发布验证通过")
