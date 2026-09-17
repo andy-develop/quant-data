@@ -5,6 +5,7 @@
 数据来源（全部来自 quant-data，由 gen_payload.py 生成 data/payload/）：
   - payload/hl.json       → PAYLOAD 的 snapshot / backtest（红利低波）
   - payload/hs300.json    → PAYLOAD 的 hs300（沪深300 择时）
+  - payload/hs300_score.json → PAYLOAD 的 hs300_score（沪深300 五维综合打分）
   - payload/sector.json   → PAYLOAD 的 sector（行业轮动）
   - payload/stock.json    → STOCK_UNIVERSE（[code,name]）+ REAL_FACTORS（因子）
   - payload/morning.json  → MORNING（上午实时快照，11:30）
@@ -113,13 +114,20 @@ def main():
     # 1) ETF 三段策略 PAYLOAD（quant-data 单一数据源）
     hl = load_json(os.path.join(QD, "hl.json"), {})
     hs300 = load_json(os.path.join(QD, "hs300.json"), {})
+    hs300_score = load_json(os.path.join(QD, "hs300_score.json"), {})
     sector = load_json(os.path.join(QD, "sector.json"), {})
     payload = dict(hl)
     if hs300:
         payload["hs300"] = hs300
+    if hs300_score:
+        payload["hs300_score"] = hs300_score
     if sector:
         payload["sector"] = sector
     print(f"PAYLOAD 段: {sorted(payload.keys())}（hl 缺失={not hl}）")
+    if hs300_score:
+        snap = hs300_score.get("snapshot") or {}
+        print(f"hs300_score: data_date={hs300_score.get('data_date')} "
+              f"score={snap.get('score')} stance={snap.get('stance_zh')}")
     if not hl:
         print("错误: 缺少 hl.json，无法生成门户（请先运行 quant-data/scripts/gen_payload.py）")
 

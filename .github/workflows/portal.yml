@@ -3,7 +3,8 @@ name: Portal Pipeline (12:00 Beijing)
 # 门户流水线：工作日 12:00 开始更新整个页面，14:00 前出网页端结果。
 #   fetch_index(截至 T-1 完整收盘，含大盘天气 5 锚定指数) -> fetch_etf -> fetch_stock
 #   -> fetch_snapshot(11:30) -> build_factors -> gen_payload(hl/hs300/sector/stock/morning)
-#   -> build_weather(weather.json) -> build_timing_db(timing_db.json 择时回测 K 线包)
+#   -> build_weather(weather.json) -> fetch_option_hs300 -> build_hs300_score
+#   -> build_timing_db(timing_db.json 择时回测 K 线包)
 #   -> build_portal(index.html) -> 提交 data 增量
 #   -> 双通道发布：HSK 文件托管 + GitHub Pages
 #   -> 分别 verify 两端 data_date
@@ -88,6 +89,12 @@ jobs:
       - name: Build weather payload (four-layer market weather)
         # 硬失败：禁止带着过期 weather.json 绿发布（旧版 || warn 会让 verify 本地自洽假绿）
         run: python3 scripts/build_weather.py
+
+      - name: Fetch HS300 option IV/PCR (soft)
+        run: python3 scripts/fetch_option_hs300.py || echo "::warning::期权抓取失败，IV/PCR 将沿用已有日表或回退已实现波动"
+
+      - name: Build HS300 five-dimension score [-1,+1]
+        run: python3 scripts/build_hs300_score.py
 
       - name: Build timing_db (择时回测 K 线包，本地库优先)
         run: python3 scripts/build_timing_db.py

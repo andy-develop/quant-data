@@ -96,6 +96,12 @@ jobs:
         # 收盘后 CSI(000300/932000) 已发布当日值；重建 weather.json，避免仅腾讯通道先行时混日。
         run: python3 scripts/build_weather.py
 
+      - name: Fetch HS300 option IV/PCR (soft)
+        run: python3 scripts/fetch_option_hs300.py || echo "::warning::期权抓取失败，沿用已有日表"
+
+      - name: Build HS300 five-dimension score [-1,+1]
+        run: python3 scripts/build_hs300_score.py
+
       - name: Build timing_db (择时回测 K 线包)
         run: python3 scripts/build_timing_db.py
 

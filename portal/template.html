@@ -82,6 +82,34 @@ section + section{margin-top:34px}
 .gauge-scale{display:flex;justify-content:space-between;font-size:11px;color:var(--dim);margin-top:6px}
 .gauge-desc{font-size:14px;color:var(--ink2);margin-top:12px}
 .gauge-nums{font-size:12px;color:var(--dim);margin-top:4px}
+/* ===== 综合打分 ===== */
+.score-hero{display:grid;grid-template-columns:minmax(180px,220px) 1fr;gap:16px;align-items:stretch}
+@media(max-width:720px){.score-hero{grid-template-columns:1fr}}
+.score-main{background:linear-gradient(160deg,#F0F7FE,#FFFFFF);border:1px solid var(--line);border-radius:14px;padding:18px 16px;text-align:center}
+.score-main .lab{font-size:12px;color:var(--sub)}
+.score-main .big{font-size:42px;font-weight:800;letter-spacing:-1px;margin:4px 0;line-height:1.1}
+.score-main .stance{display:inline-block;margin-top:4px;padding:2px 10px;border-radius:999px;font-size:13px;font-weight:700}
+.score-main .stance.bull{background:#FDE8E8;color:#C0392B}
+.score-main .stance.bear{background:#E4F5EA;color:#177245}
+.score-main .stance.mid{background:#EEF3F9;color:#5B7BA3}
+.score-bar{position:relative;height:10px;border-radius:999px;background:linear-gradient(90deg,#16A34A,#EAB308,#E0443C);margin:14px 8px 6px}
+.score-bar .ptr{position:absolute;top:-4px;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:10px solid #16324F;transform:translateX(-50%)}
+.score-bar-scale{display:flex;justify-content:space-between;font-size:11px;color:var(--dim);padding:0 2px}
+.score-dims{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
+.score-dim{background:#F6FAFE;border:1px solid var(--line);border-radius:10px;padding:10px}
+.score-dim .n{font-size:12px;color:var(--sub)}
+.score-dim .v{font-size:20px;font-weight:700;margin-top:2px}
+.score-dim .track{height:6px;background:#E4EEF8;border-radius:99px;margin-top:8px;overflow:hidden;position:relative}
+.score-dim .fill{position:absolute;top:0;bottom:0;left:50%;width:0;background:var(--blue);border-radius:99px;transform-origin:left center}
+.score-tbl{width:100%;border-collapse:collapse;font-size:13px;margin-top:12px}
+.score-tbl th,.score-tbl td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}
+.score-tbl th{font-size:12px;color:var(--sub);font-weight:600;background:#F6FAFE}
+.score-tbl td.num{font-variant-numeric:tabular-nums;font-weight:600}
+.score-note{font-size:12px;color:var(--dim);margin-top:10px;line-height:1.6}
+.score-charts{display:grid;grid-template-columns:1.4fr 1fr;gap:12px;margin-top:12px}
+@media(max-width:720px){.score-charts{grid-template-columns:1fr}}
+.score-chart{height:260px}
+.score-chart-sm{height:260px}
 /* ===== ③ 我的仓位 ===== */
 .capital-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
 .capital-row label{font-size:14px;color:var(--sub)}
@@ -622,6 +650,39 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
       <div class="action-title" id="x-act-title">—</div>
       <div class="action-sub" id="x-act-sub">—</div>
       <div class="action-meta" id="x-act-meta">—</div>
+    </div>
+  </section>
+
+  <!-- ①b 五维综合打分 [-1,+1] -->
+  <section>
+    <div class="sec-t"><span class="sec-n">①ᵇ</span>综合打分 · 五维 [-1, +1]</div>
+    <div class="card" id="x-score-card">
+      <div id="x-score-missing" style="display:none;font-size:13.5px;color:var(--warn)">综合打分数据未打包（请先运行 scripts/build_hs300_score.py）。</div>
+      <div id="x-score-body">
+        <div class="score-hero">
+          <div class="score-main">
+            <div class="lab">综合分</div>
+            <div class="big" id="x-score-big">—</div>
+            <span class="stance mid" id="x-score-stance">—</span>
+            <div class="score-bar"><div class="ptr" id="x-score-ptr" style="left:50%"></div></div>
+            <div class="score-bar-scale"><span>-1 偏空</span><span>0</span><span>+1 偏多</span></div>
+          </div>
+          <div>
+            <div class="score-dims" id="x-score-dims"></div>
+            <div class="score-note" id="x-score-note">—</div>
+          </div>
+        </div>
+        <div class="score-charts">
+          <div class="score-chart" id="x-score-hist"></div>
+          <div class="score-chart-sm" id="x-score-radar"></div>
+        </div>
+        <details style="margin-top:12px">
+          <summary>十项指标明细</summary>
+          <div class="detail-body" style="padding-top:8px">
+            <table class="score-tbl"><thead><tr><th>维度</th><th>指标</th><th>原始值</th><th>得分</th><th>方向</th></tr></thead><tbody id="x-score-tbody"></tbody></table>
+          </div>
+        </details>
+      </div>
     </div>
   </section>
 
@@ -1251,8 +1312,10 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
   var S = D.snapshot, BT = D.backtest, M = BT.metrics || {};
   var SEC = D.sector || null;   // 行业轮动数据段（sector_update.py 注入）
   var HS = D.hs300 || null;     // 沪深300 择时数据段（hs300_update.py 注入）
+  var HS_SCORE = D.hs300_score || null;  // 沪深300 五维综合打分
   var secChartsInited = false;  // 行业轮动图表懒初始化
   var hsChartsInited = false;   // 沪深300 图表懒初始化
+  var hsScoreChartsInited = false;
   var fmt = function(x, n){ n = n==null ? 0 : n; return Number(x).toLocaleString("zh-CN", {minimumFractionDigits:n, maximumFractionDigits:n}); };
   var pct1 = function(x){ return (x>0?"+":"") + fmt(x,1) + "%"; };
 
@@ -1436,6 +1499,11 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
       if (HS && xbt && xbt.open && !hsChartsInited) {
         setTimeout(function(){ initHs300Charts(); window.dispatchEvent(new Event("resize")); }, 120);
       } else if (HS && xbt && xbt.open) {
+        window.dispatchEvent(new Event("resize"));
+      }
+      if (HS_SCORE && !hsScoreChartsInited) {
+        setTimeout(function(){ initHs300ScoreCharts(); window.dispatchEvent(new Event("resize")); }, 140);
+      } else if (HS_SCORE) {
         window.dispatchEvent(new Event("resize"));
       }
     } else if (pg.content) {
@@ -1975,7 +2043,126 @@ function renderHs300(){
   // 图表懒初始化（展开折叠时绘制）
   var xbtDet = document.getElementById("x-bt-details");
   xbtDet.addEventListener("toggle", function(){ if (xbtDet.open) { setTimeout(initHs300Charts, 60); window.dispatchEvent(new Event("resize")); } });
+  renderHs300Score();
 }
+function renderHs300Score(){
+  var miss = document.getElementById("x-score-missing");
+  var body = document.getElementById("x-score-body");
+  if (!HS_SCORE || !HS_SCORE.snapshot) {
+    if (miss) miss.style.display = "block";
+    if (body) body.style.display = "none";
+    return;
+  }
+  if (miss) miss.style.display = "none";
+  if (body) body.style.display = "block";
+  var snap = HS_SCORE.snapshot;
+  var sc = snap.score == null ? 0 : +snap.score;
+  var elBig = document.getElementById("x-score-big");
+  elBig.textContent = (sc > 0 ? "+" : "") + sc.toFixed(2);
+  elBig.style.color = sc > 0.15 ? "var(--up)" : (sc < -0.15 ? "var(--down)" : "var(--ink)");
+  var st = document.getElementById("x-score-stance");
+  st.textContent = snap.stance_zh || "—";
+  st.className = "stance " + (snap.stance === "bullish" ? "bull" : (snap.stance === "bearish" ? "bear" : "mid"));
+  var ptr = document.getElementById("x-score-ptr");
+  ptr.style.left = ((sc + 1) / 2 * 100).toFixed(1) + "%";
+
+  var dimNames = {price:"价格", volume:"量能", trend:"趋势", volatility:"波动", crowd:"拥挤"};
+  var dimsEl = document.getElementById("x-score-dims");
+  dimsEl.innerHTML = (snap.dims || []).map(function(d){
+    var v = d.score == null ? null : +d.score;
+    var txt = v == null ? "—" : ((v > 0 ? "+" : "") + v.toFixed(2));
+    var col = v == null ? "var(--dim)" : (v > 0.15 ? "var(--up)" : (v < -0.15 ? "var(--down)" : "var(--ink)"));
+    var pct = v == null ? 0 : Math.abs(v) * 50;
+    var left = v == null ? 50 : (v >= 0 ? 50 : 50 - pct);
+    return '<div class="score-dim"><div class="n">' + (d.name || dimNames[d.key] || d.key) +
+      '</div><div class="v" style="color:' + col + '">' + txt +
+      '</div><div class="track"><div class="fill" style="left:' + left + '%;width:' + pct + '%;background:' + col + '"></div></div></div>';
+  }).join("");
+
+  var note = document.getElementById("x-score-note");
+  var meth = HS_SCORE.method || {};
+  var proxyNote = snap.opt_iv_is_proxy ? " · 当日 IV 为已实现波动回退" : "";
+  var optDays = snap.option_history_days || 0;
+  var coldNote = optDays < 30 ? (" · 期权日表仅 " + optDays + " 天，PCR/IV 百分位仍在冷启动") : "";
+  note.innerHTML = "数据日 <b>" + (HS_SCORE.data_date || "—") + "</b> · 滚动 " + (meth.window || 756) +
+    " 日百分位映射到 [-1,+1]，五维等权" + proxyNote + coldNote +
+    "。<br>正分偏多、负分偏空；价格/量能/换手波动/涨停拥挤取反，趋势与 IV/PCR 恐慌逆向为正。";
+
+  var tbody = document.getElementById("x-score-tbody");
+  tbody.innerHTML = (snap.indicators || []).map(function(it){
+    var raw = it.raw == null ? "—" : (typeof it.raw === "number" ? it.raw.toFixed(2) + (it.unit || "") : it.raw);
+    var s = it.score == null ? "—" : ((it.score > 0 ? "+" : "") + (+it.score).toFixed(2));
+    var scol = it.score == null ? "" : (it.score > 0.15 ? "color:var(--up)" : (it.score < -0.15 ? "color:var(--down)" : ""));
+    return "<tr><td>" + (dimNames[it.dim] || it.dim) + "</td><td>" + it.label +
+      "</td><td class='num'>" + raw + "</td><td class='num' style='" + scol + "'>" + s +
+      "</td><td>" + (it.flip ? "过热→偏空" : "正向/逆向偏多") + "</td></tr>";
+  }).join("");
+}
+function initHs300ScoreCharts(){
+  if (hsScoreChartsInited) return;
+  if (!HS_SCORE || !HS_SCORE.series || typeof echarts === "undefined") {
+    hsScoreChartsInited = true;
+    return;
+  }
+  var histEl = document.getElementById("x-score-hist");
+  var radarEl = document.getElementById("x-score-radar");
+  if (!histEl || !histEl.offsetParent) return;  // 视图未显示时延后
+  var ser = HS_SCORE.series;
+  var dates = ser.map(function(r){ return r.d; });
+  var scores = ser.map(function(r){ return r.s; });
+  var c1 = echarts.init(histEl);
+  c1.setOption({
+    backgroundColor:"transparent",
+    title:{text:"综合分走势", left:0, top:0, textStyle:{fontSize:13, color:"#2B4A6F", fontWeight:600}},
+    tooltip:{trigger:"axis", confine:true, backgroundColor:"#FFFFFF", borderColor:"#DDE8F4", textStyle:{color:"#16324F",fontSize:12}},
+    grid:{left:44, right:14, top:36, bottom:28, containLabel:true},
+    dataZoom:[{type:"inside", start:70, end:100},{type:"slider", start:70, end:100, height:14, bottom:0, borderColor:"#DDE8F4", backgroundColor:"#F6FAFE", fillerColor:"rgba(43,108,176,0.15)", textStyle:{color:"#8AA3C0",fontSize:10}}],
+    xAxis:{type:"category", data:dates, axisLabel:{color:"#8AA3C0", fontSize:10, hideOverlap:true}, axisLine:{lineStyle:{color:"#DDE8F4"}}},
+    yAxis:{type:"value", min:-1, max:1, axisLabel:{color:"#8AA3C0", fontSize:10}, splitLine:{lineStyle:{color:"#EEF4FA"}},
+      axisLine:{show:true, lineStyle:{color:"#DDE8F4"}}},
+    series:[{
+      name:"综合分", type:"line", data:scores, showSymbol:false, smooth:true,
+      lineStyle:{width:1.8, color:"#2B6CB0"},
+      areaStyle:{color:{type:"linear", x:0, y:0, x2:0, y2:1, colorStops:[
+        {offset:0, color:"rgba(224,68,60,0.18)"},{offset:0.5, color:"rgba(43,108,176,0.06)"},{offset:1, color:"rgba(22,163,74,0.18)"}
+      ]}},
+      markLine:{silent:true, symbol:"none", data:[{yAxis:0, lineStyle:{color:"#8AA3C0", type:"dashed", width:1}}], label:{show:false}}
+    }]
+  });
+
+  var snap = HS_SCORE.snapshot;
+  var dimOrder = ["price","volume","trend","volatility","crowd"];
+  var dimLabel = {price:"价格", volume:"量能", trend:"趋势", volatility:"波动", crowd:"拥挤"};
+  var byKey = {};
+  (snap.dims || []).forEach(function(d){ byKey[d.key] = d.score; });
+  var radarVals = dimOrder.map(function(k){ var v = byKey[k]; return v == null ? 0 : +v; });
+  var c2 = echarts.init(radarEl);
+  c2.setOption({
+    backgroundColor:"transparent",
+    title:{text:"五维雷达", left:0, top:0, textStyle:{fontSize:13, color:"#2B4A6F", fontWeight:600}},
+    tooltip:{},
+    radar:{
+      indicator: dimOrder.map(function(k){ return {name: dimLabel[k], max:1, min:-1}; }),
+      center:["50%","56%"], radius:"62%",
+      axisName:{color:"#5B7BA3", fontSize:11},
+      splitArea:{areaStyle:{color:["#FFFFFF","#F6FAFE"]}},
+      splitLine:{lineStyle:{color:"#DDE8F4"}},
+      axisLine:{lineStyle:{color:"#DDE8F4"}}
+    },
+    series:[{
+      type:"radar",
+      data:[{
+        value: radarVals,
+        name:"维度分",
+        areaStyle:{color:"rgba(43,108,176,0.18)"},
+        lineStyle:{color:"#2B6CB0", width:2},
+        itemStyle:{color:"#2B6CB0"}
+      }]
+    }]
+  });
+  hsScoreChartsInited = true;
+}
+
 function initHs300Charts(){
   if (hsChartsInited) return;
   if (typeof echarts === "undefined") {
@@ -2200,6 +2387,7 @@ function initSectorCharts(){
   secChartsInited = true;
 }
 if (HS) renderHs300();
+else renderHs300Score();
 if (SEC) renderSector();
 })();
 </script>

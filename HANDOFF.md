@@ -108,7 +108,14 @@ quant-data/
 - **qlab 段依赖外部报告**：quant-lab 报告为本地产物，CI 回退 `data/qlab/` 归档（懒更新）。
 - **verify 覆盖 weather（2026-09-15 已补齐）**：天气数据在 `var WEATHER = {...}` 内联 JS 而非 PAYLOAD script，verify 用正则提取并对比本地/线上 weather data_date，不一致即红；HSK 发布 skip 判定仍以三端 data_date + content_sha 为主，weather 不单独参与 skip。
 
-## 9. 大盘天气 · 四层择时（2026-09-15 新增）
+## 10. 沪深300 五维综合打分（2026-09-16 新增）
+
+门户「ETF择时 → 沪深300」页新增 **综合打分 [-1,+1]** 区块（与既有四态仓位机并列，不改信号）。
+
+- **指标**：价格（20日乖离、布林%B）/ 量能（20·60日换手乖离）/ 趋势（20日ADX带方向、创新高占比）/ 波动（期权ATM IV、60日换手波动）/ 拥挤（涨停占比5日均、期权OI PCR 5日均）
+- **标准化**：滚动 756 日百分位 → `2p-1`；价格/量能/换手波动/涨停取反；趋势与 IV/PCR 正向
+- **链路**：`fetch_option_hs300.py` → `data/kline/option/hs300_option_daily.parquet`；`build_hs300_score.py` → `payload/hs300_score.json`；`build_portal` 注入 `D.hs300_score`
+- **口径**：换手用 000300 成交额代理；IV 缺历史时回退 20 日已实现波动；期权日表冷启动时 PCR 百分位不稳定（页内提示）
 
 门户顶部新增第四 tag「大盘天气」，展示 5 大宽基指数（上证 000001 / 深成指 399001 / 沪深300 000300 / 创业板指 399006 / 中证2000 932000）的四层择时信号。
 
