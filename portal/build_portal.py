@@ -110,6 +110,99 @@ def load_qlab_payload():
     return out
 
 
+def _round_list(xs, nd=2):
+    return [round(float(x), nd) for x in (xs or [])]
+
+
+def _slim_trades(trades):
+    out = []
+    for t in trades or []:
+        out.append({
+            "code": t["code"],
+            "name": t["name"],
+            "strategy_cn": t.get("strategy_cn", ""),
+            "entry_date": t["entry_date"],
+            "exit_date": t["exit_date"],
+            "entry_px": round(float(t["entry_px"]), 2),
+            "exit_px": round(float(t["exit_px"]), 2),
+            "shares": t["shares"],
+            "pnl_pct": round(float(t["pnl_pct"]), 6),
+            "pnl_cny": round(float(t["pnl_cny"]), 2),
+            "reason": t["reason"],
+            "hold_days": t["hold_days"],
+            "buy_rank": t.get("buy_rank", 0),
+        })
+    return out
+
+
+def _slim_mode(mode):
+    """去掉与 shared 重复的序列，压缩 trades/holdings 浮点。"""
+    if not mode:
+        return mode
+    m = dict(mode)
+    for k in ("dates", "bench", "bench1000"):
+        m.pop(k, None)
+    if "equity" in m:
+        m["equity"] = _round_list(m["equity"], 2)
+    m["trades"] = _slim_trades(m.get("trades"))
+    holds = []
+    for h in m.get("holdings") or []:
+        hh = dict(h)
+        if "entry_px" in hh:
+            hh["entry_px"] = round(float(hh["entry_px"]), 2)
+        if "pnl_pct" in hh:
+            hh["pnl_pct"] = round(float(hh["pnl_pct"]), 6)
+        if "value" in hh:
+            hh["value"] = round(float(hh["value"]), 2)
+        holds.append(hh)
+    m["holdings"] = holds
+    return m
+
+
+def compact_qlab_modes(modes):
+    """压缩实验室 payload：on/off 共享 dates/bench，并圆整浮点。
+
+    前端 hydrateQlab() 会把 shared 写回 on/off，渲染逻辑无需改字段名。
+    """
+    if not modes:
+        return {}
+    out = {}
+    for win, pair in modes.items():
+        if not isinstance(pair, dict):
+            out[win] = pair
+            continue
+        on = pair.get("on") or {}
+        off = pair.get("off") or {}
+        shared = {
+            "dates": on.get("dates") or off.get("dates") or [],
+            "bench": _round_list(on.get("bench") or off.get("bench")),
+            "bench1000": _round_list(on.get("bench1000") or off.get("bench1000")),
+        }
+        out[win] = {
+            "shared": shared,
+            "on": _slim_mode(on),
+            "off": _slim_mode(off),
+        }
+    return out
+
+
+def write_qlab_assets(qlab_payload):
+    """把动量/黑盒 payload 写成独立 JSON，供前端按需 fetch（不再内联进 index.html）。"""
+    asset_dir = os.path.join(ROOT, "qlab")
+    os.makedirs(asset_dir, exist_ok=True)
+    written = {}
+    for key, fname in (("momentum", "momentum.json"), ("blackbox", "blackbox.json")):
+        raw = qlab_payload.get(key) or {}
+        compact = compact_qlab_modes(raw)
+        path = os.path.join(asset_dir, fname)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(compact, f, ensure_ascii=False, separators=(",", ":"))
+        written[key] = os.path.getsize(path)
+        print(f"qlab 外置: {path} ({written[key]/1024:.1f} KB, "
+              f"原始约 {len(js_array_str(raw))/1024:.1f} KB)")
+    return written
+
+
 def main():
     # 1) ETF 三段策略 PAYLOAD（quant-data 单一数据源）
     hl = load_json(os.path.join(QD, "hl.json"), {})
@@ -147,8 +240,9 @@ def main():
     gen_time = snap.get("generated_at", "—")
     data_date = snap.get("data_date", "—")
 
-    # 5) 量化实验室报告（动量/黑盒）
+    # 5) 量化实验室报告（动量/黑盒）——外置为独立 JSON，避免撑爆 index.html
     qlab_payload = load_qlab_payload()
+    write_qlab_assets(qlab_payload)
 
     # 6) 大盘天气四层择时：weather.json 数据 + weather_tab.html 片段
     weather = load_json(os.path.join(QD, "weather.json"), {})
@@ -202,10 +296,9 @@ def main():
     html = html.replace("/*__MORNING__*/{}", js_array_str(morning))
     html = html.replace("/*__GEN_TIME__*/", gen_time)
     html = html.replace("/*__DATA_DATE__*/", data_date)
-    html = html.replace("/*__QLAB_MOMENTUM__*/{}",
-                        js_array_str(qlab_payload.get("momentum", {})))
-    html = html.replace("/*__QLAB_BLACKBOX__*/{}",
-                        js_array_str(qlab_payload.get("blackbox", {})))
+    # QLab 数据改为 qlab/*.json 按需加载；占位符置 null，不再内联数百 KB JSON
+    html = html.replace("/*__QLAB_MOMENTUM__*/{}", "null")
+    html = html.replace("/*__QLAB_BLACKBOX__*/{}", "null")
 
     # 8) 校验无残留占位符
     remain = [p for p in ["__PAYLOAD__", "__REAL_FACTORS__", "__STOCK_UNIVERSE__",

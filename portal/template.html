@@ -3,9 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
+<meta http-equiv="Cache-Control" content="max-age=300, must-revalidate">
 <title>红利低波 · 跟投仪表盘</title>
 <script src="echarts.min.js"></script>
 <style>
@@ -3032,7 +3030,7 @@ window.PickEngine = { show: showView };
 </script>
 <script>
 // ===== 短线策略 · 量化实验室报告（quant-lab 移植） =====
-// 双页（动量/黑盒）同布局同表结构，独立 payload；数据由 build_portal.py 注入占位符。
+// 双页（动量/黑盒）同布局同表结构；payload 外置为 qlab/*.json，进入视图时按需 fetch。
 (function(){
   var QLAB_MODES   = /*__QLAB_MOMENTUM__*/{};
   var QLAB_MODES_BB = /*__QLAB_BLACKBOX__*/{};
@@ -3080,6 +3078,7 @@ window.PickEngine = { show: showView };
     tradeOpen = !tradeOpen;
     el('tradeWrap').style.display = tradeOpen ? '' : 'none';
     el('tradeToggle').textContent = tradeOpen ? '收起明细 ▴' : '展开明细 ▾';
+    if (tradeOpen && lastTr && lastTr.length) fillTradeTable(lastTr);
   }
 
   // ---------- 区间切换: 统一从全期 payload 切"最后 N+1 个交易日", 切片起点重归一 ¥100万 ----------
@@ -3176,8 +3175,8 @@ window.PickEngine = { show: showView };
         label:{show:true,position:'right',fontSize:10,color:'#88867E'}}]}, true);
   }
 
-  function tables(tr){
-    // 交易明细
+  var lastTr = [];
+  function fillTradeTable(tr){
     var rows = tr.slice(0,400).map(function(t){ return '<tr>'+
       '<td>'+t.exit_date+'</td><td>'+t.code+'</td><td>'+t.name+'</td>'+
       '<td><span class="tag tg-c">'+t.strategy_cn+'</span></td>'+
@@ -3186,7 +3185,13 @@ window.PickEngine = { show: showView };
       '<td>'+t.hold_days+'天</td><td>'+t.reason+'</td></tr>'; }).join('');
     el('tradeTable').innerHTML =
       '<thead><tr><th>卖出日</th><th>代码</th><th>名称</th><th>策略</th><th>买入日</th><th>买价</th><th>股数</th><th>卖价</th><th>收益率</th><th>盈亏(¥)</th><th>持有</th><th>原因</th></tr></thead><tbody>'+(rows||'<tr><td colspan=12 class="note">该区间无交易</td></tr>')+'</tbody>';
+  }
+  function tables(tr){
+    // 交易明细：默认折叠，展开时再灌 DOM（最多 400 行，避免首屏卡顿）
+    lastTr = tr;
     el('tradeNote').textContent = '(共 '+tr.length+' 笔, 显示前 '+Math.min(tr.length,400)+' 笔, 按卖出日排序 · 股数按整手交易, 1手=100股)';
+    if (tradeOpen) fillTradeTable(tr);
+    else el('tradeTable').innerHTML = '';
     // 当前持仓
     el('holdTable').innerHTML =
       '<thead><tr><th>代码</th><th>名称</th><th>策略</th><th>买入日</th><th>买价</th><th>股数</th><th>市值(¥)</th><th>持有</th><th>浮动盈亏</th></tr></thead><tbody>'+
@@ -3250,31 +3255,74 @@ window.PickEngine = { show: showView };
   window.addEventListener('resize', function(){ eqChart.resize(); reasonChart.resize(); });
   }  // initPage 结束
 
-  // ---------- 门户懒初始化: 视图首次可见时才 init（隐藏容器 echarts.init 会失败） ----------
-  var QLab = { inited:false, cur:null };
-  function qlabInit(){
-    if (QLab.inited) return;
-    QLab.inited = true;
-    var m = document.getElementById("page-momentum");
-    var b = document.getElementById("page-blackbox");
-    if (!m || !b) return;
-    m.style.display = ""; b.style.display = "none";
-    initPage("", QLAB_MODES, "动量轮动");
-    m.style.display = "none"; b.style.display = "";
-    initPage("bb_", QLAB_MODES_BB, "量化黑盒");
-    b.style.display = "none";
+  // ---------- 按需加载: 只 init 当前页，payload 从 qlab/*.json fetch（不再内联进 HTML） ----------
+  var QLAB_VER = "/*__DATA_DATE__*/";
+  var QLab = { inited: {}, cur: null, cache: {}, loading: {} };
+
+  function hydrateQlab(modes){
+    if (!modes) return modes;
+    Object.keys(modes).forEach(function(win){
+      var w = modes[win];
+      if (!w || !w.shared) return;
+      ["on","off"].forEach(function(m){
+        if (!w[m]) return;
+        w[m].dates = w.shared.dates;
+        w[m].bench = w.shared.bench;
+        w[m].bench1000 = w.shared.bench1000;
+      });
+    });
+    return modes;
   }
+
+  function loadQlab(kind){
+    if (QLab.cache[kind]) return Promise.resolve(QLab.cache[kind]);
+    if (QLab.loading[kind]) return QLab.loading[kind];
+    var file = kind === "blackbox" ? "qlab/blackbox.json" : "qlab/momentum.json";
+    QLab.loading[kind] = fetch(file + "?v=" + encodeURIComponent(QLAB_VER))
+      .then(function(r){
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function(data){
+        QLab.cache[kind] = hydrateQlab(data);
+        delete QLab.loading[kind];
+        return QLab.cache[kind];
+      })
+      .catch(function(err){
+        delete QLab.loading[kind];
+        throw err;
+      });
+    return QLab.loading[kind];
+  }
+
   function qlabShow(view){
-    qlabInit();
-    var target = view === "blackbox" ? "page-blackbox" : "page-momentum";
+    var kind = view === "blackbox" ? "blackbox" : "momentum";
+    var target = kind === "blackbox" ? "page-blackbox" : "page-momentum";
+    var prefix = kind === "blackbox" ? "bb_" : "";
+    var label = kind === "blackbox" ? "量化黑盒" : "动量轮动";
     document.querySelectorAll(".qlab .page").forEach(function(el){
       el.style.display = el.id === target ? "" : "none";
     });
     QLab.cur = view;
-    window.dispatchEvent(new Event("resize"));
+    if (QLab.inited[kind]) {
+      window.dispatchEvent(new Event("resize"));
+      return;
+    }
+    var wb = document.getElementById(prefix + "warnBar");
+    if (wb) wb.innerHTML = "正在加载回测数据…";
+    loadQlab(kind).then(function(modes){
+      QLab.inited[kind] = true;
+      var page = document.getElementById(target);
+      if (page) page.style.display = "";
+      initPage(prefix, modes, label);
+      window.dispatchEvent(new Event("resize"));
+    }).catch(function(err){
+      if (wb) wb.innerHTML = "<b>⚠ " + label + " 加载失败</b> —— " + (err && err.message ? err.message : err) +
+        "。请确认站点已发布 qlab/" + kind + ".json。";
+    });
   }
 
-  window.QLab = { show: qlabShow, init: qlabInit };
+  window.QLab = { show: qlabShow };
 })();
 </script>
 </body>

@@ -135,6 +135,8 @@ jobs:
           rm -rf _site
           mkdir -p _site
           cp portal/index.html portal/echarts.min.js _site/
+          # QLab 动量/黑盒回测 JSON（按需 fetch，不再内联进 index.html）
+          if [ -d portal/qlab ]; then cp -R portal/qlab _site/qlab; fi
           touch _site/.nojekyll
           # 持久化稳定 Pages URL（项目站，不漂移）
           python3 - <<'EOF'
