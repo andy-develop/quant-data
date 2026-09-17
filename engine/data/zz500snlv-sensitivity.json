@@ -1,0 +1,248 @@
+{
+ "baseline": {
+  "total": 1.7089,
+  "sharpe": 0.6691,
+  "mdd": -0.3235,
+  "n_trades": 33.0
+ },
+ "sensitivity": [
+  {
+   "param": "X_UP",
+   "value": 15,
+   "total": 0.7589,
+   "sharpe": 0.4389,
+   "mdd": -0.3235,
+   "n_trades": 37.0
+  },
+  {
+   "param": "X_UP",
+   "value": 20,
+   "total": 1.448,
+   "sharpe": 0.6198,
+   "mdd": -0.3235,
+   "n_trades": 33.0
+  },
+  {
+   "param": "X_UP",
+   "value": 30,
+   "total": 1.3513,
+   "sharpe": 0.57,
+   "mdd": -0.3235,
+   "n_trades": 31.0
+  },
+  {
+   "param": "Y_DOWN",
+   "value": 14,
+   "total": 1.4514,
+   "sharpe": 0.5994,
+   "mdd": -0.3235,
+   "n_trades": 31.0
+  },
+  {
+   "param": "Y_DOWN",
+   "value": 16,
+   "total": 1.5374,
+   "sharpe": 0.6225,
+   "mdd": -0.3235,
+   "n_trades": 31.0
+  },
+  {
+   "param": "Y_DOWN",
+   "value": 20,
+   "total": 1.714,
+   "sharpe": 0.6805,
+   "mdd": -0.2892,
+   "n_trades": 31.0
+  },
+  {
+   "param": "HOLD_DAYS",
+   "value": 60,
+   "total": 1.5588,
+   "sharpe": 0.6433,
+   "mdd": -0.3235,
+   "n_trades": 34.0
+  },
+  {
+   "param": "HOLD_DAYS",
+   "value": 90,
+   "total": 1.7089,
+   "sharpe": 0.6691,
+   "mdd": -0.3235,
+   "n_trades": 33.0
+  },
+  {
+   "param": "HOLD_DAYS",
+   "value": 180,
+   "total": 1.7089,
+   "sharpe": 0.6691,
+   "mdd": -0.3235,
+   "n_trades": 33.0
+  },
+  {
+   "param": "REBUY_DAYS",
+   "value": 90,
+   "total": 1.6494,
+   "sharpe": 0.637,
+   "mdd": -0.3235,
+   "n_trades": 33.0
+  },
+  {
+   "param": "REBUY_DAYS",
+   "value": 120,
+   "total": 1.6594,
+   "sharpe": 0.6431,
+   "mdd": -0.3235,
+   "n_trades": 33.0
+  },
+  {
+   "param": "REBUY_DAYS",
+   "value": 240,
+   "total": 1.886,
+   "sharpe": 0.7096,
+   "mdd": -0.3235,
+   "n_trades": 32.0
+  },
+  {
+   "param": "BEAR_CORE",
+   "value": 0.5,
+   "total": 1.8796,
+   "sharpe": 0.7262,
+   "mdd": -0.2845,
+   "n_trades": 33.0
+  },
+  {
+   "param": "BEAR_CORE",
+   "value": 0.6,
+   "total": 1.8127,
+   "sharpe": 0.7043,
+   "mdd": -0.2996,
+   "n_trades": 33.0
+  },
+  {
+   "param": "BEAR_CORE",
+   "value": 1.0,
+   "total": 1.177,
+   "sharpe": 0.5235,
+   "mdd": -0.3631,
+   "n_trades": 18.0
+  },
+  {
+   "param": "CORE_CONFIRM",
+   "value": 0,
+   "total": 1.1421,
+   "sharpe": 0.5393,
+   "mdd": -0.3346,
+   "n_trades": 88.0
+  },
+  {
+   "param": "CORE_CONFIRM",
+   "value": 5,
+   "total": 1.3038,
+   "sharpe": 0.5789,
+   "mdd": -0.3391,
+   "n_trades": 37.0
+  },
+  {
+   "param": "CORE_CONFIRM",
+   "value": 15,
+   "total": 1.3349,
+   "sharpe": 0.5842,
+   "mdd": -0.3352,
+   "n_trades": 30.0
+  },
+  {
+   "param": "FORCE_MIN_ABOVE_MA",
+   "value": 0,
+   "total": 1.9243,
+   "sharpe": 0.7127,
+   "mdd": -0.3235,
+   "n_trades": 33.0
+  },
+  {
+   "param": "FORCE_MIN_ABOVE_MA",
+   "value": 10,
+   "total": 1.7713,
+   "sharpe": 0.682,
+   "mdd": -0.3235,
+   "n_trades": 33.0
+  },
+  {
+   "param": "FORCE_MIN_ABOVE_MA",
+   "value": 30,
+   "total": 1.7622,
+   "sharpe": 0.6807,
+   "mdd": -0.3235,
+   "n_trades": 33.0
+  },
+  {
+   "param": "OS_MIN_COUNT_BEAR",
+   "value": 2,
+   "total": 1.5805,
+   "sharpe": 0.6212,
+   "mdd": -0.3235,
+   "n_trades": 37.0
+  },
+  {
+   "param": "OS_MIN_COUNT_BEAR",
+   "value": 4,
+   "total": 1.189,
+   "sharpe": 0.6019,
+   "mdd": -0.2892,
+   "n_trades": 25.0
+  },
+  {
+   "param": "VAL_HALF_CAP",
+   "value": 1.25,
+   "total": 1.6876,
+   "sharpe": 0.6528,
+   "mdd": -0.3593,
+   "n_trades": 37.0
+  },
+  {
+   "param": "VAL_HALF_CAP",
+   "value": 1.5,
+   "total": 1.6995,
+   "sharpe": 0.6424,
+   "mdd": -0.3921,
+   "n_trades": 39.0
+  },
+  {
+   "param": "OB_FROM_CD",
+   "value": false,
+   "total": 1.6473,
+   "sharpe": 0.6425,
+   "mdd": -0.3235,
+   "n_trades": 34.0
+  }
+ ],
+ "walk_forward": [
+  {
+   "period": "2018-2020",
+   "start": "2018-01-01",
+   "end": "2020-12-31",
+   "total": 0.3352,
+   "sharpe": 0.6664,
+   "mdd": -0.2898,
+   "n_trades": 12.0
+  },
+  {
+   "period": "2021-2023",
+   "start": "2021-01-01",
+   "end": "2023-12-29",
+   "total": 0.1925,
+   "sharpe": 0.481,
+   "mdd": -0.232,
+   "n_trades": 8.0
+  },
+  {
+   "period": "2024-2026",
+   "start": "2024-01-01",
+   "end": "2026-09-16",
+   "total": 0.666,
+   "sharpe": 0.9967,
+   "mdd": -0.174,
+   "n_trades": 11.0
+  }
+ ],
+ "note": "v9.0 中证500低波固定参数；相对红利低波默认独立校准"
+}

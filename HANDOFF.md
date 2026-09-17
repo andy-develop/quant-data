@@ -1,6 +1,6 @@
 # HANDOFF — quant-data 统一数据仓库与量化门户
 
-> 更新：2026-09-16（数据可靠性：CSI/腾讯/东财多通道兜底、cn10y 路径修复、健康闸门加固）
+> 更新：2026-09-17（中证500低波 v9.0：买卖点审计后独立参数，夏普/收益提升；见 §2 engine + gen_payload ZZ500SNLV_PARAMS）
 > 历史演进（2026-09-15 前）详见已归档仓库 `andy-develop/red-dividend-strategy` 的 HANDOFF.md（§1-§34），本文件为唯一交接主文档。
 
 ## 1. 项目概述
@@ -32,11 +32,11 @@ quant-data/
 │   ├── gen_payload.py     # 复用 engine/ 生成 hl/hs300/sector/stock/morning 5 段
 │   └── housekeeping.py    # 滚动保留（3y/13y/7天）+ compact + 体积报告
 ├── engine/             # ★ 统一回测引擎（原 red-dividend-strategy 迁入）
-│   ├── backtest/engine.py   # 四态仓位机（默认=红利低波，make_params 变体=沪深300）
+│   ├── backtest/engine.py   # 四态仓位机（默认=红利低波，make_params 变体=沪深300 / 中证500低波）
 │   ├── update.py / hs300_update.py / sector_{engine,universe,update}.py
 │   ├── payload_util.py / refresh_cn10y.py / *_sensitivity.py（过拟合体检，离线工具）
 │   ├── trade_calendar.csv / backtest/{cn10y,h20269,h30269}_daily.csv / sensitivity.json
-│   └── tests/              # 64 项引擎单测（unittest）
+│   └── tests/              # 引擎单测（unittest；含 test_zz500snlv）
 ├── portal/
 │   ├── template.html       # 门户宿主模板（约 2400 行）
 │   ├── weather_tab.html    # 大盘天气视图片段（.wzone，由 build_portal.py 注入）
@@ -55,7 +55,7 @@ quant-data/
 | ETF K 线 | 32 只（行业轮动池） | `kline/etf/etf_kline.parquet` | 全量 |
 | 上午快照 | 32 ETF + 5 指数 11:30 实时 | `snapshot/{etf,index}_<day>.parquet` | 7 天 |
 | 因子层 | 日度因子（价格/量比） | `factors/` | gitignored（每次重算） |
-| payload | hl/hs300/sector/stock/morning/weather | `payload/*.json` | 入库（门户输入） |
+| payload | hl/hs300/zz500snlv/sector/stock/morning/weather | `payload/*.json` | 入库（门户输入） |
 | qlab 归档 | 动量/黑盒报告 JSON | `qlab/` | 入库 |
 
 当前数据规模（2026-09-15）：股票 hfq **3,610,087 行 / 5,227 只**（4,776 只完整 3 年）；指数均 10.7~13.0 年；ETF 2015→最新。`.git` ≈ 302M。

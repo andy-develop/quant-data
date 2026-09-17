@@ -5,13 +5,13 @@
 输入（全部来自 quant-data data/）：
   - kline/index/H20269|H30269.parquet      → 红利低波 snapshot+backtest（四态仓位机默认参数）
   - kline/index/H00300|000300.parquet      → 沪深300 择时 snapshot+backtest（v8.0 变体参数）
-  - kline/index/H20782|930782.parquet      → 中证500低波（500SNLV）snapshot+backtest（默认参数）
+  - kline/index/H20782|930782.parquet      → 中证500低波（500SNLV）snapshot+backtest（v9.0 变体参数）
   - kline/etf/etf_kline.parquet            → 行业轮动 sector（21 行业 × 32 ETF）
   - snapshot/etf_<day>.parquet / index_<day>.parquet → morning 上午实时段（11:30 快照）
   - factors/stock.parquet + meta/stocks.parquet      → 选股 stocks + factors
 
 复用仓库内 engine/ 统一引擎（原 red-dividend-strategy，代码单份、口径与产品完全一致）：
-  - engine/backtest/engine.py：四态仓位机（默认=红利低波；make_params 变体=沪深300）
+  - engine/backtest/engine.py：四态仓位机（默认=红利低波；make_params 变体=沪深300 / 中证500低波）
   - engine/update.py：build_snapshot / build_backtest_payload / trade_day_info / validate_data
   - engine/sector_engine.py + engine/sector_universe.py + engine/sector_update.build_sector_payload：行业轮动
 
@@ -56,6 +56,16 @@ PAY = C.PAYLOAD_DIR
 HS300_PARAMS = {"X_UP": 15.0, "Y_DOWN": 14.0, "HOLD_DAYS": 120,
                 "BEAR_CORE": 0.4, "CORE_CONFIRM": 10, "OB_FROM_CD": True,
                 "FORCE_MIN_ABOVE_MA": 20, "OS_MIN_COUNT_BEAR": 3, "VAL_HALF_CAP": 1.0}
+
+# 中证500低波变体（v9.0）：买卖点审计后独立校准，不污染红利低波默认路径
+# 审计要点：① 60日到期卖出胜率仅25%（动能消失卖出100%）→ HOLD 120；
+#          ② 熊市浅跌2-of-4加仓拖累（2023-12/2024-06）→ OS_MIN_COUNT_BEAR=3 + Y_DOWN=18；
+#          ③ 满仓扛熊 MDD≈买入持有 → BEAR_CORE=0.75；④ 90日无条件回补偏早 → REBUY 180 + FORCE 20；
+#          ⑤ 加仓态遇超买不清仓漏利润 → OB_FROM_CD；⑥ 半力仍借钱 → VAL_HALF_CAP=1.0。
+# WF 三段夏普约 0.67/0.48/1.00（min 0.48），全期夏普 ~0.67 / 总收益 ~+171% / MDD ~-32%。
+ZZ500SNLV_PARAMS = {"X_UP": 25.0, "Y_DOWN": 18.0, "HOLD_DAYS": 120, "REBUY_DAYS": 180,
+                    "BEAR_CORE": 0.75, "CORE_CONFIRM": 10, "OB_FROM_CD": True,
+                    "FORCE_MIN_ABOVE_MA": 20, "OS_MIN_COUNT_BEAR": 3, "VAL_HALF_CAP": 1.0}
 
 
 def bj_now() -> str:
@@ -229,9 +239,16 @@ def main() -> None:
                        "val_half_cap": P.VAL_HALF_CAP}
     _write(f"{PAY}/hs300.json", hs300)
 
-    print("[gen_payload] 中证500低波（H20782/930782，默认参数 · 500SNLV）...")
-    zz500snlv = run_timing(load_index_df("H20782", "930782"), p=None, label="中证500低波")
-    zz500snlv["params"] = {"x_up": EBT.X_UP, "y_down": EBT.Y_DOWN, "hold_days": EBT.HOLD_DAYS}
+    print("[gen_payload] 中证500低波（H20782/930782，v9.0 变体 · 500SNLV）...")
+    Pz = EBT.make_params(**ZZ500SNLV_PARAMS)
+    zz500snlv = run_timing(load_index_df("H20782", "930782"), p=Pz, label="中证500低波")
+    zz500snlv["params"] = {"x_up": Pz.X_UP, "y_down": Pz.Y_DOWN, "hold_days": Pz.HOLD_DAYS,
+                           "rebuy_days": Pz.REBUY_DAYS,
+                           "bear_core": Pz.BEAR_CORE, "core_confirm": Pz.CORE_CONFIRM,
+                           "ob_from_cd": Pz.OB_FROM_CD,
+                           "force_min_above_ma": Pz.FORCE_MIN_ABOVE_MA,
+                           "os_min_count_bear": Pz.OS_MIN_COUNT_BEAR,
+                           "val_half_cap": Pz.VAL_HALF_CAP}
     _write(f"{PAY}/zz500snlv.json", zz500snlv)
 
     print("[gen_payload] 行业轮动（32 ETF）...")

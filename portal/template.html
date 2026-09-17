@@ -871,7 +871,7 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
       <span>数据日期 <b id="z-date">—</b></span>
       <span>生成时间 <b id="z-gen">—</b></span>
       <span>当前策略仓位 <b id="z-pos">—</b></span>
-      <span>策略版本 <b>v7.13 · 500SNLV</b></span>
+      <span>策略版本 <b>v9.0 · 500SNLV</b></span>
     </div>
   </header>
 
@@ -908,9 +908,9 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
         <span style="font-size:12.5px;color:var(--dim)">输入你准备投入的钱，自动换算下面金额</span>
       </div>
       <div class="pos-grid">
-        <div class="pos-cell"><div class="lab">底仓（100%，始终持有）</div><div class="val" id="z-p-base">—</div></div>
+        <div class="pos-cell"><div class="lab">当前 regime 底仓</div><div class="val" id="z-p-base">—</div></div>
         <div class="pos-cell"><div class="lab">当前按策略应持有</div><div class="val" id="z-p-now">—</div></div>
-        <div class="pos-cell"><div class="lab">加仓部分（需借钱）</div><div class="val" id="z-p-extra" style="color:var(--up)">—</div></div>
+        <div class="pos-cell"><div class="lab">加仓部分（&gt;底仓）</div><div class="val" id="z-p-extra" style="color:var(--up)">—</div></div>
         <div class="pos-cell"><div class="lab">空仓期可持现金</div><div class="val" id="z-p-cash" style="color:var(--down)">—</div></div>
       </div>
       <div class="tip" id="z-lev-tip">—</div>
@@ -927,20 +927,20 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
   <section>
     <div class="sec-t"><span class="sec-n">④</span>策略概览 · 这套策略平时怎么操作（先看这个）</div>
     <div class="card">
-      <div class="ov-hero">总体思想：<b>满仓 + 超跌抄底</b></div>
+      <div class="ov-hero">总体思想：<b>年线上方满仓 · 年线下方七成底仓 + 深度超跌加仓</b></div>
       <div style="font-size:13.5px;color:var(--ink2);line-height:1.7;margin-top:10px">
-        平时把本金 100% 买成中证500低波 ETF 一直拿着，不折腾；<br>
-        只在市场跌到情绪冰点（周线 J 极值超卖等 4 个恐慌信号至少 2 个共振）时，<b>短暂借钱加仓</b>到 125% / 150%，最多 60 天内卖掉回到满仓；<br>
-        极端贪婪（3 个过热信号同时满足）时<b>清仓落袋</b>，等回调后再满仓买回。
+        年线上方把本金 100% 买成中证500低波 ETF；跌破年线确认后底仓先降到 <b>75%</b>；<br>
+        只在情绪冰点（熊市须 4 个恐慌信号至少 <b>3</b> 个共振 + 更深跌幅门槛）时回补/加仓，最长 <b>120</b> 天了结临时仓；<br>
+        极端贪婪时清仓落袋；强制回补须满 <b>180</b> 天且站稳年线，避免假突破接飞刀。
       </div>
       <div class="ov-stats">
         <div class="ov-cell"><div class="lab">每年约</div><div class="val" style="color:var(--up)" id="z-ov-add">—</div><div class="lab">次加仓抄底</div></div>
-        <div class="ov-cell"><div class="lab">每次加仓平均持有</div><div class="val" id="z-ov-hold">—</div><div class="lab">天（最长 60 天）</div></div>
+        <div class="ov-cell"><div class="lab">每次加仓平均持有</div><div class="val" id="z-ov-hold">—</div><div class="lab">天（最长 120 天）</div></div>
         <div class="ov-cell"><div class="lab">清仓离场约</div><div class="val" style="color:var(--down)" id="z-ov-clear">—</div><div class="lab">次 / 年（多数年份没有）</div></div>
         <div class="ov-cell"><div class="lab">抄底单档胜率</div><div class="val" style="color:var(--up)" id="z-ov-wr">—</div><div class="lab" id="z-ov-wl">—</div></div>
       </div>
-      <div class="bt-note" id="z-ov-detail">10 年回测：共 <b id="z-ov-total">—</b> 次加仓（125% × <span id="z-ov-125">—</span> 次、150% × <span id="z-ov-150">—</span> 次），多数年份 2~4 次，最频繁的 2018 / 2021 年各 6 次；平均每档超跌抄底赚 <b id="z-ov-avg">—</b>。</div>
-      <div class="ov-note">预期管理：一年里大概会看到 <b>2~4 次</b>「今天可以加仓抄底」的提示，之后 1~2 个月内大概率出现卖点；其余时间页面都会显示「继续满仓持有」——没信号就什么都不做，这才是这套策略的常态。</div>
+      <div class="bt-note" id="z-ov-detail">回测：共 <b id="z-ov-total">—</b> 次加仓（125% × <span id="z-ov-125">—</span> 次、150% × <span id="z-ov-150">—</span> 次）；平均每档超跌抄底赚 <b id="z-ov-avg">—</b>。</div>
+      <div class="ov-note">预期管理：牛市多数时间「继续满仓」；熊市多数时间「七成底仓等待深度抄底」。一年大约 1~3 次加仓提示，其余时间少动。</div>
     </div>
   </section>
 
@@ -964,7 +964,7 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
     <details id="z-bt-details">
       <summary>10 年回测证据（怎么得出这套规则）</summary>
       <div class="detail-body">
-        <div class="bt-note">区间 <span id="z-bt-range">—</span> · 初始 10 万 · 每天按信号操作。加仓部分按融资计息（年化 7%）与滑点计费，非零成本。想复现可看仓库 backtest/engine.py。</div>
+        <div class="bt-note">区间 <span id="z-bt-range">—</span> · 初始 10 万 · 每天按信号操作。加仓部分按融资计息（年化 7%）与滑点计费，非零成本。想复现可看仓库 backtest/engine.py（p=make_params(X_UP=25, Y_DOWN=18, HOLD_DAYS=120, REBUY_DAYS=180, BEAR_CORE=0.75, CORE_CONFIRM=10, FORCE_MIN_ABOVE_MA=20, OS_MIN_COUNT_BEAR=3, VAL_HALF_CAP=1.0, OB_FROM_CD=True)，v9.0）。</div>
         <div class="bt-kpis">
           <div class="bt-cell"><div class="lab">策略总收益</div><div class="val" style="color:var(--up)" id="z-r-total">—</div><div class="lab">买入持有 <b id="z-r-total-bh">—</b></div></div>
           <div class="bt-cell"><div class="lab">夏普比率</div><div class="val" id="z-r-sharpe">—</div><div class="lab">买入持有 <b id="z-r-sharpe-bh">—</b></div></div>
@@ -1006,12 +1006,13 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
       <summary>策略说明与数据口径（给懂行的人）</summary>
       <div class="detail-body">
         <ul class="rule">
-          <li><b>超卖买点</b>＝2-of-4 × 双重门槛（v7.12）：4 个恐慌信号（周线 J&lt;1 / 跌破布林下轨 / 近 63 日跌幅≥14% / 周线 RSI&lt;35）任意 2 个，<b>且</b> 价格 &lt;250 日线（年线下方才抄底，年线上方超卖=高位回调不执行）<b>且</b> 估值剪刀差（股息率代理−10Y国债）3 年历史分位 ≥50%（&lt;50% 不执行；50-80% 半力=禁加仓至150%）；抄底胜率按含滑点成交价 FIFO 配对。</li>
-          <li><b>A 态清仓</b>＝超买三维极值：J&gt;95 且 触及/突破上轨 且 up63≥20% → 离场 0%；离场后出现超卖信号可提前回补，最迟 90 自然日强制回补。</li>
-          <li><b>临时仓卖出</b>＝动能消失确认（任一）：J 从&gt;90跌破80 / RSI 从&gt;70跌破65 / 10日顶背离（收盘创新高且日线 RSI 未新高）；每档 25% 独立 60 自然日到期强制卖出。</li>
-          <li><b>执行口径（v7.12）</b>：信号用价格指数 930782 计算、收益用全收益 H20782；T+1 收盘成交（无开盘价近似）+ 单边滑点 5bp；杠杆年化 7% 按交易日计息；费用单边 max(万1, 5元)；年化 252 交易日、夏普无风险利率 0。</li>
-          <li><b>情绪温度计算法</b>：0.4×J(截断0-100) + 0.4×周线RSI + 0.2×动量分(100+dn63×3 截断0-100)，仅作直观参考，不参与任何买卖信号。</li>
-          <li><b>过拟合体检</b>：8 参数敏感性（除 X_UP 外均参数平原）+ walk-forward 三区间夏普 0.45/0.56/0.75，见仓库 backtest/sensitivity.json；PBO/Deflated Sharpe 未实现。</li>
+          <li><b>超卖买点</b>＝共振 × 双重门槛（v9.0）：4 个恐慌信号（周线 J&lt;1 / 跌破布林下轨 / 近 63 日跌幅≥18% / 周线 RSI&lt;35）；熊市须至少 <b>3-of-4</b>，牛市仍 2-of-4；<b>且</b> 价格 &lt;250 日线（年线门）<b>且</b> 估值剪刀差 3 年分位 ≥50%（&lt;50% 不执行；50-80% 半力=只回补到 100%、禁借钱；≥80% 才允许 125%/150%）。</li>
+          <li><b>年线底仓</b>：价格连续 10 个交易日在 MA250 下方 → 底仓 BEAR_CORE=75%；连续 10 日站上 → 恢复 100%。无临时仓时自动对齐底仓。加仓态遇到超买三维极值也清仓（OB_FROM_CD）。</li>
+          <li><b>A 态清仓</b>＝超买三维极值：J&gt;95 且 触及/突破上轨 且 up63≥25% → 离场 0%；离场后出现超卖可提前回补；满 180 自然日且已连续站上 MA250 达 20 日才强制回补（FORCE_MIN_ABOVE_MA）。</li>
+          <li><b>临时仓卖出</b>＝动能消失确认（任一）：J 从&gt;90跌破80 / RSI 从&gt;70跌破65 / 10日顶背离；每档 25% 独立 120 自然日到期强制卖出，回到当前底仓。</li>
+          <li><b>执行口径</b>：信号用价格指数 930782、收益用全收益 H20782；T+1 收盘成交 + 单边滑点 5bp；杠杆年化 7%；费用单边 max(万1, 5元)；夏普无风险利率 0。</li>
+          <li><b>与红利低波的关系</b>：共享同一引擎；红利低波沿用默认（BEAR_CORE=1.0 / HOLD=60 / OS 2-of-4）。中证500低波 v9.0 独立校准，见 engine/data/zz500snlv-sensitivity.json（WF 夏普约 0.67/0.48/1.00）。</li>
+          <li><b>过拟合体检</b>：单参数敏感性 + walk-forward 三区间，见仓库 engine/data/zz500snlv-sensitivity.json；PBO/Deflated Sharpe 未实现。</li>
         </ul>
       </div>
     </details>
@@ -2736,7 +2737,23 @@ function initSectorCharts(){
 function renderZz500Snlv(){
   if (!Z5) return;
   var XS = Z5.snapshot, XBT = Z5.backtest, XM = XBT.metrics || {};
-  var stateMap = {"A":"A · 常态满仓","B":"B · 空仓等待回补","C":"C · 125% 加仓中","D":"D · 150% 加仓中"};
+  var xParam = XS.param || (Z5.params || {});
+  var xBearCore = Math.round((xParam.bear_core != null ? xParam.bear_core : 0.75) * 100);
+  var xBullCore = Math.round((xParam.bull_core != null ? xParam.bull_core : 1) * 100);
+  var xHold = xParam.hold_days != null ? xParam.hold_days : 120;
+  var xRebuy = xParam.rebuy_days != null ? xParam.rebuy_days : 180;
+  var xYDown = xParam.y_down != null ? xParam.y_down : 18;
+  var xXUp = xParam.x_up != null ? xParam.x_up : 25;
+  var xCorePct = (XS.state === "A") ? XS.pos
+    : (XS.state === "B") ? (XS.val && XS.val.ma250_ok ? xBearCore : xBullCore)
+    : Math.min(XS.pos, xBullCore);
+  if (XS.pos > 0 && XS.pos < 100 && XS.state === "A") xCorePct = XS.pos;
+  var stateMap = {
+    "A": XS.pos < 100 ? ("A · 熊市底仓 " + XS.pos + "%") : "A · 常态满仓",
+    "B":"B · 空仓等待回补",
+    "C":"C · 加仓中（" + XS.pos + "%）",
+    "D":"D · 高杠杆加仓（" + XS.pos + "%）"
+  };
   document.getElementById("z-state").textContent = stateMap[XS.state] || XS.state;
   document.getElementById("z-state").className = "badge " + (XS.state=="B"?"b-danger":(XS.pos>100?"b-warn":"b-ok"));
   document.getElementById("z-date").textContent = XS.data_date;
@@ -2758,11 +2775,11 @@ function renderZz500Snlv(){
   }
   function xActionMeta(){
     var cap = (document.getElementById("z-capital") && +document.getElementById("z-capital").value) || 100000;
-    var hold = xMoney(XS.pos, cap), base = xMoney(100, cap), extra = xMoney(Math.max(0,XS.pos-100), cap);
+    var hold = xMoney(XS.pos, cap), extra = xMoney(Math.max(0,XS.pos-xCorePct), cap);
     var h = "对应 ETF：<b>中证500低波ETF " + xETF + "</b>（500SNLV / 930782；以实际跟踪为准，收益按全收益指数测算，实盘有跟踪差异）";
-    if (XS.pos > 100) h += " · 按" + fmt(cap,0) + "元本金：已持有 <b>" + fmt(hold,0) + " 元</b>（其中加仓 <b style='color:var(--up)'>" + fmt(extra,0) + " 元</b>需融资）";
+    if (XS.pos > xCorePct) h += " · 按" + fmt(cap,0) + "元本金：已持有 <b>" + fmt(hold,0) + " 元</b>（其中加仓 <b style='color:var(--up)'>" + fmt(extra,0) + " 元</b>" + (XS.pos>100?"需融资":"") + "）";
     else if (XS.pos === 0) h += " · 按" + fmt(cap,0) + "元本金：<b>当前不持有</b>，等待回补信号";
-    else h += " · 按" + fmt(cap,0) + "元本金：持有 <b>" + fmt(base,0) + " 元</b>";
+    else h += " · 按" + fmt(cap,0) + "元本金：底仓持有 <b>" + fmt(hold,0) + " 元（" + XS.pos + "%）</b>";
     return h;
   }
   var xCAL = XS.cal || {};
@@ -2786,18 +2803,22 @@ function renderZz500Snlv(){
   var xTITLE_OK = xCAL.is_today_trade !== false;
   if (!xTITLE_OK && xCAL.cal_missing && new Date().getDay() !== 0 && new Date().getDay() !== 6) xTITLE_OK = true;
 
+  var xNextPos = Math.min(150, XS.pos + 25);
+  var xnNeedAct = (XS.os_gap && XS.os_gap.need_total != null) ? XS.os_gap.need_total : 2;
   if (XS.state === "B" && XS.oversold_now) {
-    xSetAction("act-buy", (xTITLE_OK ? "今天可以加仓抄底" : "下个交易日可加仓抄底（今日休市）"), "市场跌过头了（4 个恐慌信号里已出现 ≥2 个），" + (xTITLE_OK ? "现在出手" : "下个交易日开盘执行") + "：回补底仓并加仓到 125%。", "加仓部分最迟 60 个自然日内卖出。" + xCalNote + xActionMeta());
+    xSetAction("act-buy", (xTITLE_OK ? "今天可以加仓抄底" : "下个交易日可加仓抄底（今日休市）"), "市场跌过头了（4 个恐慌信号里已出现 ≥" + xnNeedAct + " 个），" + (xTITLE_OK ? "现在出手" : "下个交易日开盘执行") + "：回补底仓并加一档。", "加仓部分最迟 " + xHold + " 个自然日内卖出。" + xCalNote + xActionMeta());
   } else if (XS.oversold_now && XS.pos < 150) {
-    xSetAction("act-buy", (xTITLE_OK ? "今天可以加仓抄底" : "下个交易日可加仓抄底（今日休市）"), "市场跌过头了（4 个恐慌信号里已出现 ≥2 个），" + (xTITLE_OK ? "现在出手" : "下个交易日开盘执行") + "，把仓位加到 " + (XS.pos>=125?"150%":"125%") + "。", "加仓部分最迟 60 个自然日内卖出（动能消失信号可提前卖）。" + xCalNote + xActionMeta());
-  } else if (XS.state === "A" && XS.overbought_now) {
-    xSetAction("act-sell", (xTITLE_OK ? "涨太多了，建议清仓落袋为安" : "下个交易日清仓落袋（今日休市）"), "价格涨过布林上轨、J 值进入超买极值、短期涨幅已大——3 个过热信号同时出现，" + (xTITLE_OK ? "先全部卖出" : "下个交易日开盘全部卖出") + "锁定利润。", "空仓后最迟 90 个自然日需买回，出现超卖信号可提前回补。" + xCalNote + xActionMeta());
-  } else if (XS.pos > 100 && XS.momentum_lost_now) {
-    xSetAction("act-sell", (xTITLE_OK ? "把之前抄底加的钱卖掉，回到满仓" : "下个交易日卖掉加仓部分（今日休市）"), "价格创新高但上涨的劲头已经减弱（动能消失/顶背离），见好就收，只卖加仓部分。", "卖完回到 100% 底仓，底仓继续拿着。" + xCalNote + xActionMeta());
-  } else if (XS.pos > 100) {
-    xSetAction("act-hold", "继续持有加仓部分，等卖点", "市场还没给出卖出信号（动能未消失、未满 60 天），加仓部分继续持有，等「动能消失」或到期再卖。", "倒计时：见下方折叠区「为什么今天这么说」。" + xActionMeta());
+    xSetAction("act-buy", (xTITLE_OK ? "今天可以加仓抄底" : "下个交易日可加仓抄底（今日休市）"), "市场跌过头了（4 个恐慌信号里已出现 ≥" + xnNeedAct + " 个），" + (xTITLE_OK ? "现在出手" : "下个交易日开盘执行") + "，把仓位加到约 " + xNextPos + "%。", "加仓部分最迟 " + xHold + " 个自然日内卖出（动能消失信号可提前卖）。" + xCalNote + xActionMeta());
+  } else if ((XS.state === "A" || (xParam.ob_from_cd && XS.pos > xCorePct)) && XS.overbought_now) {
+    xSetAction("act-sell", (xTITLE_OK ? "涨太多了，建议清仓落袋为安" : "下个交易日清仓落袋（今日休市）"), "价格涨过布林上轨、J 值进入超买极值、短期涨幅已大——3 个过热信号同时出现，" + (xTITLE_OK ? "先全部卖出" : "下个交易日开盘全部卖出") + "锁定利润。", "空仓后最迟 " + xRebuy + " 个自然日且须站稳年线才强制买回，出现超卖信号可提前回补。" + xCalNote + xActionMeta());
+  } else if (XS.pos > xCorePct && XS.momentum_lost_now) {
+    xSetAction("act-sell", (xTITLE_OK ? "把之前抄底加的钱卖掉，回到底仓" : "下个交易日卖掉加仓部分（今日休市）"), "价格创新高但上涨的劲头已经减弱（动能消失/顶背离），见好就收，只卖加仓部分。", "卖完回到当前 regime 底仓，底仓继续拿着。" + xCalNote + xActionMeta());
+  } else if (XS.pos > xCorePct) {
+    xSetAction("act-hold", "继续持有加仓部分，等卖点", "市场还没给出卖出信号（动能未消失、未满 " + xHold + " 天），加仓部分继续持有，等「动能消失」或到期再卖。", "倒计时：见下方折叠区「为什么今天这么说」。" + xActionMeta());
   } else if (XS.state === "B") {
-    xSetAction("act-hold", "空仓等待，别急着买", "上一轮涨太多已清仓落袋。现在等两种信号：超卖抄底信号（提前回补）或 90 天到期强制买回。", "回补后再操作，今天不动。" + xActionMeta());
+    xSetAction("act-hold", "空仓等待，别急着买", "上一轮涨太多已清仓落袋。现在等两种信号：超卖抄底信号（提前回补）或 " + xRebuy + " 天到期且站稳年线强制买回。", "回补后再操作，今天不动。" + xActionMeta());
+  } else if (XS.pos < 100) {
+    xSetAction("act-hold", "继续低仓持有，等待深度抄底", "价格在年线下方，底仓已降至 " + XS.pos + "%。没有更深超卖共振就先拿着，等冰点再加仓。", "出现「加仓抄底」或站上年线恢复满仓时再动。" + xActionMeta());
   } else {
     xSetAction("act-hold", "继续满仓持有，今天不用动", "没有出现买入或卖出信号，拿着底仓等就行，不用天天操作。", "出现「加仓抄底」或「清仓落袋」提示再动。" + xActionMeta());
   }
@@ -2827,19 +2848,19 @@ function renderZz500Snlv(){
     }
     xvparts.push(XS.val.ma250_ok ? "价格 <b>在年线下方</b> · 允许抄底" : "价格 <b>在年线上方</b> · 高位回调不抄底");
     if (XS.val.gate_ok === false) xvparts.push("今日超卖信号被估值门拦截（分位<50% 不执行）");
-    xvr.innerHTML = "抄底门槛（v7.12）：" + xvparts.join("　·　");
+    xvr.innerHTML = "抄底门槛（v9.0）：" + xvparts.join("　·　");
   }
 
   var xcapEl = document.getElementById("z-capital");
   function xRenderPos(){
     var cap = +xcapEl.value || 0;
-    document.getElementById("z-p-base").innerHTML = fmt(cap) + " <small>元</small>";
+    document.getElementById("z-p-base").innerHTML = fmt(cap * xCorePct / 100) + " <small>元（" + xCorePct + "%）</small>";
     document.getElementById("z-p-now").innerHTML = fmt(cap * XS.pos / 100) + " <small>元（" + XS.pos + "%）</small>";
-    document.getElementById("z-p-extra").innerHTML = (XS.pos > 100 ? fmt(cap * (XS.pos-100) / 100) + " <small>元</small>" : "0 <small>元</small>");
+    document.getElementById("z-p-extra").innerHTML = (XS.pos > xCorePct ? fmt(cap * (XS.pos-xCorePct) / 100) + " <small>元</small>" : "0 <small>元</small>");
     document.getElementById("z-p-cash").innerHTML = (XS.pos === 0 ? fmt(cap) + " <small>元（全部现金）</small>" : "0 <small>元</small>");
     document.getElementById("z-lev-tip").innerHTML = XS.pos > 100
-      ? "⚠ 当前策略要求 <b>加仓 " + (XS.pos-100) + "%</b>（借 " + fmt(cap*(XS.pos-100)/100,0) + " 元），需要<b>融资融券账户</b>才能执行。没有两融账户？可以只做 100% 底仓、忽略加仓信号。"
-      : "提示：策略只在极端恐慌时短暂加仓（最多 50% 融资）、极端贪婪时清仓，其余时间满仓持有。没有两融账户可始终只做 100% 底仓。";
+      ? "⚠ 当前策略要求 <b>加仓 " + (XS.pos-100) + "%</b>（借 " + fmt(cap*(XS.pos-100)/100,0) + " 元），需要<b>融资融券账户</b>才能执行。没有两融账户？可以只做底仓、忽略加仓信号。"
+      : "提示：年线上方满仓；年线下方底仓约 " + xBearCore + "%；只在深度超卖时加仓、极端贪婪时清仓。没有两融账户可始终只做底仓。";
   }
   xcapEl.addEventListener("input", function(){ xRenderPos(); var m = xActionMeta(); var el = document.getElementById("z-act-meta"); if (el && xactT.textContent) el.innerHTML = m; });
   xRenderPos();
@@ -2854,13 +2875,13 @@ function renderZz500Snlv(){
   xCondRow("z-os-conds", [
     {k:"周线 J 值", v:fmt(XS.wj,1), t:"< 1 = 恐慌", pass:XS.wj<1, near:XS.wj<10},
     {k:"价格 vs 布林下轨", v:(XS.px<=XS.lower?"已触及/跌破":"还差 " + fmt(xosg.band?xosg.band.gap:0,1) + "%"), t:"跌破 = 超跌", pass:XS.px<=XS.lower, near:xosg.band?xosg.band.gap<3:false},
-    {k:"近63日跌幅", v:pct1(XS.dn63), t:"≤ 14% = 超跌", pass:XS.dn63<=-14, near:xosg.dn63?xosg.dn63.gap<3:false},
+    {k:"近63日跌幅", v:pct1(XS.dn63), t:"≤ -" + xYDown + "% = 超跌", pass:XS.dn63<=-xYDown, near:xosg.dn63?xosg.dn63.gap<3:false},
     {k:"周线 RSI", v:fmt(XS.wrsi,1), t:"< 35 = 恐慌", pass:XS.wrsi<35, near:XS.wrsi<40}
   ]);
   xCondRow("z-ob-conds", [
     {k:"周线 J 值", v:fmt(XS.wj,1), t:"> 95 = 贪婪", pass:XS.wj>95, near:XS.wj>85},
     {k:"价格 vs 布林上轨", v:(XS.px>=XS.upper?"已触及/突破":"还差 " + fmt(xobg.band_gap,1) + "%"), t:"突破 = 超涨", pass:XS.px>=XS.upper, near:xobg.band_gap<3},
-    {k:"近63日涨幅", v:pct1(XS.up63), t:"≥ 20% = 过热", pass:XS.up63>=20, near:xobg.up63_gap<3}
+    {k:"近63日涨幅", v:pct1(XS.up63), t:"≥ " + xXUp + "% = 过热", pass:XS.up63>=xXUp, near:xobg.up63_gap<3}
   ]);
   xCondRow("z-ml-conds", [
     {k:"周线 J 动能", v:(xmlg.j_cross_ok?"已跌破 80":"当前 " + fmt(XS.wj,1) + "，还差 " + fmt(xmlg.j_need_drop,1)), t:"从>90跌破80", pass:xmlg.j_cross_ok, near:xmlg.j_need_drop<5},
@@ -2868,19 +2889,19 @@ function renderZz500Snlv(){
     {k:"10日顶背离", v:(xmlg.diverg_ok?"已触发":"信号价 " + fmt(XS.px,0) + " vs 前10日高 " + fmt(xmlg.hi10c,0)), t:"价新高且RSI未新高", pass:xmlg.diverg_ok, near:XS.px>=xmlg.hi10c*0.98}
   ]);
   var xwhy = document.getElementById("z-why-text");
-  var xnOs = xosg.hits !== undefined ? xosg.hits : [XS.wj<1, XS.px<=XS.lower, XS.dn63<=-14, XS.wrsi<35].filter(Boolean).length;
+  var xnOs = xosg.hits !== undefined ? xosg.hits : [XS.wj<1, XS.px<=XS.lower, XS.dn63<=-xYDown, XS.wrsi<35].filter(Boolean).length;
   var xnNeed = (xosg.need_total != null) ? xosg.need_total : 2;
   xwhy.innerHTML = (XS.oversold_now ? "买点信号：<b style='color:#C0392B'>超卖 " + xnNeed + "-of-4 已共振</b>（" + xnOs + "/4 个恐慌信号同时满足）" : "买点：超卖 " + xnNeed + "-of-4 共振（4 个恐慌信号 ≥" + xnNeed + " 个）当前满足 <b>" + xnOs + "/4</b>，再中 <b style='color:#B45309'>" + Math.max(0,xnNeed-xnOs) + "</b> 个即触发") +
     "；清仓：超买三维极值" + (XS.overbought_now?" <b style='color:#C0392B'>已触发</b>":"（还差 " + fmt(xobg.need_rise_pct,1) + "% 涨幅）") +
     "；临时仓卖点：动能消失任一" + (XS.momentum_lost_now?" <b style='color:#C0392B'>已触发</b>":"（J还差" + fmt(xmlg.j_need_drop,1) + "、RSI还差" + fmt(xmlg.rsi_need_drop,1) + "）");
-  document.getElementById("z-os-gap").innerHTML = "买点缺口（逐条件，2-of-4 再中 <b>" + Math.max(0,2-xnOs) + "</b> 个即触发）：布林下轨" + (xosg.band&&xosg.band.hit?"<b class='ok'>已跌破</b>":"还差 <b>" + fmt(xosg.band?xosg.band.gap:0,1) + "%</b>") +
+  document.getElementById("z-os-gap").innerHTML = "买点缺口（逐条件，" + xnNeed + "-of-4 再中 <b>" + Math.max(0,xnNeed-xnOs) + "</b> 个即触发）：布林下轨" + (xosg.band&&xosg.band.hit?"<b class='ok'>已跌破</b>":"还差 <b>" + fmt(xosg.band?xosg.band.gap:0,1) + "%</b>") +
     " · 63日跌幅" + (xosg.dn63&&xosg.dn63.hit?"<b class='ok'>已满足</b>":"还差 <b>" + fmt(xosg.dn63?xosg.dn63.gap:0,1) + "%</b>") +
     " · 周线J" + (xosg.wj&&xosg.wj.hit?"<b class='ok'>已<1</b>":"当前 " + fmt(XS.wj,1)) +
     " · 周线RSI" + (xosg.wrsi&&xosg.wrsi.hit?"<b class='ok'>已<35</b>":"当前 " + fmt(XS.wrsi,1));
   document.getElementById("z-ob-gap").innerHTML = xobg.need_rise_pct>0 ? "清仓缺口：布林还差 <b>" + fmt(xobg.band_gap,1) + "%</b>、63日动量还差 <b>" + fmt(xobg.up63_gap,1) + "%</b>，取较大者 <b class='" + (xobg.need_rise_pct<3?"ok":"warn") + "'>" + fmt(xobg.need_rise_pct,1) + "%</b>" : "清仓缺口：<b class='ok'>已满足（三维极值）</b>";
-  document.getElementById("z-ml-gap").innerHTML = XS.pos>100
-    ? (XS.momentum_lost_now ? "临时仓卖点：<b class='ok'>动能消失已触发，可了结</b>" : "临时仓卖点：J 还差 <b>" + fmt(xmlg.j_need_drop,1) + "</b>、RSI 还差 <b>" + fmt(xmlg.rsi_need_drop,1) + "</b>、顶背离待新高确认；每档 60 自然日到期兜底")
-    : "当前无临时仓（仓位 " + XS.pos + "%），动能消失信号仅在 125%/150% 加仓期间生效。";
+  document.getElementById("z-ml-gap").innerHTML = XS.pos>xCorePct
+    ? (XS.momentum_lost_now ? "临时仓卖点：<b class='ok'>动能消失已触发，可了结</b>" : "临时仓卖点：J 还差 <b>" + fmt(xmlg.j_need_drop,1) + "</b>、RSI 还差 <b>" + fmt(xmlg.rsi_need_drop,1) + "</b>、顶背离待新高确认；每档 " + xHold + " 自然日到期兜底")
+    : "当前无临时仓（仓位 " + XS.pos + "%），动能消失信号仅在高于底仓期间生效。";
 
   document.getElementById("z-bt-range").textContent = (XBT.start||"—") + " ~ " + (XBT.end||"—");
   document.getElementById("z-r-total").textContent = pct1(((XM.total!=null?XM.total:(XBT.strategy_nav[XBT.strategy_nav.length-1]-1))*100));
