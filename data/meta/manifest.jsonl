@@ -196,3 +196,10 @@
 {"event": "gen_payload", "at": "2026-09-25 17:15", "hl_last": "2026-09-24", "hs300_last": "2026-09-24", "zz500snlv_last": "2026-09-24"}
 {"event": "build_weather", "at": "2026-09-25 17:15", "indices": ["000001", "000300", "399001", "399006", "932000"], "size_kb": 357.9}
 {"event": "check_health", "at": "2026-09-25 17:15", "errors": [], "warnings": []}
+{"event": "ensure_calendar", "at": "2026-09-25 22:06", "status": "ok", "end": "2026-12-31", "remain_days": 97}
+{"event": "fetch_index", "at": "2026-09-25 22:06", "backfill": false}
+{"event": "fetch_etf", "at": "2026-09-25 22:06"}
+{"event": "fetch_stock", "at": "2026-09-25 22:09", "batch": 1, "fq": 116, "ok": 1, "fail": 116, "sec": 139, "end": "2026-09-24"}
+{"event": "housekeeping", "at": "2026-09-25 22:09", "data_mb": 185.8}
+{"event": "build_weather", "at": "2026-09-25 22:09", "indices": ["000001", "000300", "399001", "399006", "932000"], "size_kb": 357.9}
+{"event": "check_health", "at": "2026-09-25 22:09", "errors": [], "warnings": ["股票 hfq 当日覆盖率 0.0% < 90%（WAF/断档）；选股可能残缺，mirror 主通道需关注"]}
