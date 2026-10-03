@@ -1,0 +1,57 @@
+{
+  "generated_at_utc": "2026-10-03T02:26:17Z",
+  "sources": {
+    "XAU": "sina GlobalFuturesService.getGlobalFuturesDailyKLine?symbol=XAU",
+    "AU0": "sina InnerFuturesNewService.getDailyKLine?symbol=AU0",
+    "SH511880": "tencent web.ifzq.gtimg.cn fqkline (qfq)"
+  },
+  "checks": [
+    {
+      "name": "XAU",
+      "daily_rows": 5185,
+      "weekly_rows": 1043,
+      "date_min": "2006-10-03",
+      "date_max": "2026-10-02",
+      "stale_days": 1,
+      "fatal": [],
+      "warn": [
+        "132 行（2.5%）OHLC 轻微越界，源瑕疵，已验证不影响策略",
+        "1 处超过 10 天的数据缺口（多为节假日停市）"
+      ],
+      "ok": true
+    },
+    {
+      "name": "AU0",
+      "daily_rows": 4563,
+      "weekly_rows": 959,
+      "date_min": "2008-01-09",
+      "date_max": "2026-09-30",
+      "stale_days": 3,
+      "fatal": [],
+      "warn": [
+        "4 处超过 10 天的数据缺口（多为节假日停市）"
+      ],
+      "ok": true
+    },
+    {
+      "name": "SH511880",
+      "daily_rows": 3216,
+      "weekly_rows": 679,
+      "date_min": "2013-07-12",
+      "date_max": "2026-09-30",
+      "stale_days": 3,
+      "fatal": [],
+      "warn": [
+        "4 处超过 10 天的数据缺口（多为节假日停市）"
+      ],
+      "ok": true
+    }
+  ],
+  "rows": {
+    "gold_daily": 12964,
+    "gold_weekly": 2002,
+    "xau_daily": 5185,
+    "au0_daily": 4563,
+    "cash_daily": 3216
+  }
+}

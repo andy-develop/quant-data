@@ -1,0 +1,99 @@
+name: Gold Weekly Signal (Sat 10:20 Beijing)
+
+# 黄金数据 + 趋势强度策略信号：每周六北京时间 10:20 更新。
+# 时点选择的理由：策略规则是「每周五收盘计算，下周一开盘执行」，
+# 周六跑既能拿到完整周五收盘数据，又留出时间复核后再手动执行周一调仓。
+#
+# 流程：
+#   fetch_gold.py  -> 抓 XAU 伦敦金 / AU0 沪金 / 511880 货币基金，落 parquet
+#   gold_signal.py -> 算 MA16/MA40/ATR10/S/B/V/P，写信号快照 + 绩效摘要
+#   gold_check.py  -> 硬校验：参数锁定 + 指标重算 + P=B×V 复核 + 回撤告警
+#   commit         -> 有变更才提交，空转不产生噪音提交
+#
+# 幂等：数据源无新增时不提交；周末黄金市场休市时自动空转。
+
+on:
+  schedule:
+    # 北京时间周六 10:20 = UTC 周六 02:20
+    - cron: "20 2 * * 6"
+  workflow_dispatch:
+    inputs:
+      force_commit:
+        description: "即使无数据变更也提交（用于验证工作流连通性）"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  # 与 mirror/portal 共用 data/ 写锁，避免并发推送产生非快进冲突
+  group: quant-data-data-write
+  cancel-in-progress: false
+
+jobs:
+  gold:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Fetch gold bars (XAU / AU0 / cash fund)
+        # 周六跑：周五已收盘，XAU 周末无新数据。
+        # 抓取失败不中断：脚本内部重试 3 次，仍失败则沿用仓库缓存。
+        run: python3 engine/fetch_gold.py
+
+      - name: Compute GOLD-TS-16/40 signal
+        # 信号口径：次周开盘执行（与离线回测报告一致）。
+        # 用当周开盘会把年化从 9.4% 虚高到 10.8%，属前视偏差，禁止改。
+        run: python3 engine/gold_signal.py
+
+      - name: Parity and integrity check
+        # 硬门禁：参数锁定、指标重算、P=B×V 复核、回撤越界告警。
+        # 防止未来有人改了执行口径或参数却没同步更新文档。
+        run: python3 engine/gold_check.py
+
+      - name: Commit gold data and signal
+        run: |
+          git config user.name "quant-data-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/kline/gold data/meta/gold_meta.json data/meta/gold_signal.json data/snapshot/gold_signal.md
+          FORCE="${{ inputs.force_commit }}"
+          if git diff --cached --quiet && [ "$FORCE" != "true" ]; then
+            echo "无新增变更（周末休市/数据未更新），跳过 commit"
+          else
+            git commit -m "chore(gold): update gold bars and weekly signal $(date -u +%Y-%m-%d)"
+            if ! git pull --rebase origin main; then
+              echo "::warning::rebase 冲突，优先保留本流水线黄金数据与信号"
+              git checkout --theirs -- data/kline/gold data/meta/gold_meta.json data/meta/gold_signal.json data/snapshot/gold_signal.md || true
+              git add data/kline/gold data/meta/gold_meta.json data/meta/gold_signal.json data/snapshot/gold_signal.md
+              if git diff --name-only --diff-filter=U | grep -q .; then
+                echo "仍有未解决冲突:"; git diff --name-only --diff-filter=U
+                exit 1
+              fi
+              GIT_EDITOR=true git rebase --continue
+            fi
+            git push
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f data/snapshot/gold_signal.md ]; then
+            echo "### 黄金趋势强度策略 · 本周信号" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            # 复用脚本已生成的简报正文（去掉一级标题行）
+            tail -n +2 data/snapshot/gold_signal.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### 黄金信号生成失败，请查看上方日志" >> "$GITHUB_STEP_SUMMARY"
+          fi
