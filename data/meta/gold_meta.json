@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-10-03T02:26:17Z",
+  "generated_at_utc": "2026-10-03T02:39:45Z",
   "sources": {
     "XAU": "sina GlobalFuturesService.getGlobalFuturesDailyKLine?symbol=XAU",
     "AU0": "sina InnerFuturesNewService.getDailyKLine?symbol=AU0",
