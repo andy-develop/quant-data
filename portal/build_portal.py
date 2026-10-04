@@ -8,6 +8,7 @@
   - payload/hs300_score.json → PAYLOAD 的 hs300_score（沪深300 五维综合打分）
   - payload/zz500snlv.json → PAYLOAD 的 zz500snlv（中证500低波 / 500SNLV）
   - payload/sector.json   → PAYLOAD 的 sector（行业轮动）
+  - payload/gold.json     → 黄金趋势强度（ETF择时→黄金趋势强度，注入 gold_tab.html）
   - payload/stock.json    → STOCK_UNIVERSE（[code,name]）+ REAL_FACTORS（因子）
   - payload/morning.json  → MORNING（上午实时快照，11:30）
   - payload/weather.json  → 大盘天气四层择时（build_weather.py 生成）
@@ -30,6 +31,7 @@ TEMPLATE = os.path.join(ROOT, "template.html")
 HOME_TEMPLATE = os.path.join(ROOT, "home.html")
 WEATHER_TAB = os.path.join(ROOT, "weather_tab.html")
 BT_TAB = os.path.join(ROOT, "bt_tab.html")
+GOLD_TAB = os.path.join(ROOT, "gold_tab.html")
 OUTPUT_APP = os.path.join(ROOT, "app.html")
 OUTPUT_HOME = os.path.join(ROOT, "index.html")
 BASE = os.path.dirname(ROOT)                     # quant-data 仓库根
@@ -294,12 +296,28 @@ def main():
         bt_tab = ('<div class="btzone" style="padding:24px;color:#92400E">'
                   '择时回测模块未打包（缺少 portal/bt_tab.html）。</div>')
 
+    # 6c) 黄金趋势强度（ETF择时）——payload/gold.json（build_gold_payload.py）+ gold_tab.html 片段
+    gold = load_json(os.path.join(QD, "gold.json"), {})
+    gl = gold.get("latest") or {}
+    print(f"黄金趋势强度: 数据周={gl.get('week')} 目标仓位={gl.get('target_pos')} "
+          f"趋势强度={gl.get('strength')}（gold.json 缺失={not gold}）")
+    gold_tab = ""
+    if os.path.exists(GOLD_TAB):
+        with open(GOLD_TAB, encoding="utf-8") as f:
+            gold_tab = f.read()
+        gold_tab = gold_tab.replace("/*__GOLD_DATA__*/{}", js_array_str(gold))
+    else:
+        print("警告: 缺少 portal/gold_tab.html，黄金趋势强度视图降级")
+        gold_tab = ('<div class="gzone" style="padding:24px;color:#92400E">'
+                    '黄金趋势强度模块未打包（缺少 portal/gold_tab.html）。</div>')
+
     # 7) 读模板并替换占位符
     with open(TEMPLATE, encoding="utf-8") as f:
         html = f.read()
 
     html = html.replace("<!--__WEATHER_VIEW__-->", weather_tab)
     html = html.replace("<!--__BT_VIEW__-->", bt_tab)
+    html = html.replace("<!--__GOLD_VIEW__-->", gold_tab)
     html = html.replace(
         '<script id="PAYLOAD" type="application/json">__PAYLOAD__</script>',
         '<script id="PAYLOAD" type="application/json">' + js_array_str(payload) + '</script>')
@@ -316,7 +334,8 @@ def main():
     remain = [p for p in ["__PAYLOAD__", "__REAL_FACTORS__", "__STOCK_UNIVERSE__",
                           "__MORNING__", "__GEN_TIME__", "__DATA_DATE__",
                           "__QLAB_MOMENTUM__", "__QLAB_BLACKBOX__", "__WEATHER__",
-                          "__WEATHER_VIEW__", "__TIMING_DB__", "__BT_VIEW__"] if p in html]
+                          "__WEATHER_VIEW__", "__TIMING_DB__", "__BT_VIEW__",
+                          "__GOLD_VIEW__", "__GOLD_DATA__"] if p in html]
     if remain:
         print(f"错误: 仍有占位符未替换: {remain}")
         sys.exit(1)

@@ -1,0 +1,413 @@
+<!-- ===== ETF择时 · 黄金趋势强度（GOLD-TS-16/40）=====
+     由 portal/build_portal.py 注入 template.html 的 view-gold；
+     数据段 = data/payload/gold.json（scripts/build_gold_payload.py 生成）。
+     信号每周六 10:20（北京时间）由 .github/workflows/gold.yml 更新，下一周开盘执行。 -->
+<style>
+.gzone .g-hero{display:grid;grid-template-columns:1.1fr 1fr;gap:16px;align-items:start}
+.gzone .g-pos{background:linear-gradient(135deg,#F0F7FE,#FFFFFF);border:1.5px solid var(--blue);border-radius:14px;padding:16px 18px}
+.gzone .g-pos .lab{font-size:12.5px;color:var(--sub)}
+.gzone .g-pos .big{font-size:46px;font-weight:800;line-height:1.05;margin:4px 0 4px}
+.gzone .g-pos .big small{font-size:20px;font-weight:700;margin-left:2px}
+.gzone .g-sub{font-size:13px;color:var(--ink2)}
+.gzone .g-zd{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;margin-left:6px}
+.gzone .g-zd.on{background:rgba(224,68,60,.12);color:var(--up);border:1px solid rgba(224,68,60,.35)}
+.gzone .g-zd.off{background:rgba(22,163,74,.10);color:var(--down);border:1px solid rgba(22,163,74,.30)}
+.gzone .g-zd.mid{background:rgba(217,119,6,.12);color:var(--warn);border:1px solid rgba(217,119,6,.35)}
+.gzone .g-rows{display:flex;flex-direction:column;gap:7px}
+.gzone .g-row{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:13px;padding:8px 11px;background:var(--bg);border:1px solid var(--line);border-radius:9px}
+.gzone .g-row .k{color:var(--ink2)}
+.gzone .g-row .k small{color:var(--dim);font-size:11.5px;display:block}
+.gzone .g-row b{font-family:var(--num);font-size:16px;white-space:nowrap}
+.gzone .g-formula{font-family:var(--num);font-size:12px;background:#F0F6FD;border:1px solid var(--line);border-radius:9px;padding:9px 11px;margin-top:10px;color:var(--ink2);line-height:1.95}
+.gzone .g-eff{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:7px 2px;border-bottom:1px dashed var(--line)}
+.gzone .g-eff:last-child{border-bottom:0}
+.gzone .g-eff b{font-family:var(--num)}
+.gzone .g-btgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px}
+.gzone .g-cap{font-size:12.5px;color:var(--dim);margin-top:8px}
+@media(max-width:820px){.gzone .g-hero,.gzone .g-btgrid{grid-template-columns:1fr}}
+</style>
+<div class="gzone">
+<div id="g-missing" style="display:none;background:#FEF3C7;border:1px solid #F59E0B;color:#92400E;border-radius:10px;padding:10px 14px;font-size:13px;margin-bottom:14px;line-height:1.6"></div>
+
+<header>
+  <div class="brand">伦敦金 XAU 周线 · 趋势强度择时（GOLD-TS-16/40）</div>
+  <h1>黄金趋势强度 · 本周该持多少 <span id="g-state" class="badge">…</span></h1>
+  <div class="meta">
+    <span>数据周（周五收盘）<b id="g-week">—</b></span>
+    <span>信号生成 <b id="g-gen">—</b></span>
+    <span>目标黄金仓位 <b id="g-pos">—</b></span>
+    <span>执行时点 <b>下一周一开盘</b></span>
+  </div>
+</header>
+
+<!-- ① 今天做什么 -->
+<section>
+  <div class="sec-t"><span class="sec-n">①</span>本周该怎么做</div>
+  <div class="action-box">
+    <div class="action-title" id="g-act-title">—</div>
+    <div class="action-sub" id="g-act-sub">—</div>
+    <div class="action-meta" id="g-act-meta">—</div>
+  </div>
+</section>
+
+<!-- ② 信号明细 -->
+<section>
+  <div class="sec-t"><span class="sec-n">②</span>本周信号明细 · 这个仓位是怎么算出来的</div>
+  <div class="g-hero">
+    <div class="g-pos">
+      <div class="lab">目标黄金仓位 P ＝ B × V</div>
+      <div class="big" id="g-big">—<small>%</small></div>
+      <div class="g-sub" id="g-big-sub">—</div>
+      <div class="score-bar"><div class="ptr" id="g-strength-ptr" style="left:50%"></div></div>
+      <div class="score-bar-scale"><span>−1.33 均线之下 → 空仓</span><span>0 两线重合</span><span>+1.33 均线之上 → 满仓</span></div>
+      <div class="g-formula">
+        S　= (MA16 − MA40) / ATR10　（趋势强度，无量纲）<br>
+        B　= clip(0.75 × S, 0, 1)　（趋势仓位，均线之下为 0）<br>
+        V　= min(1, 2.5% / ATR%)　（波动系数，只减仓不加仓）<br>
+        P　= B × V　（目标黄金仓位，其余持货币基金）
+      </div>
+    </div>
+    <div class="g-rows" id="g-rows"></div>
+  </div>
+</section>
+
+<!-- ③ 我的仓位 -->
+<section>
+  <div class="sec-t"><span class="sec-n">③</span>我的仓位 · 照这个金额操作</div>
+  <div class="card">
+    <div class="capital-row">
+      <label for="g-capital">我的本金（元）</label>
+      <input id="g-capital" type="number" value="100000" step="10000" min="0">
+      <span style="font-size:12.5px;color:var(--dim)">输入你准备投入的钱，自动换算下面金额</span>
+    </div>
+    <div class="pos-grid">
+      <div class="pos-cell"><div class="lab">目标黄金仓位</div><div class="val" id="g-p-pos">—</div></div>
+      <div class="pos-cell"><div class="lab">买入 / 持有 黄金</div><div class="val" id="g-p-gold" style="color:var(--up)">—</div></div>
+      <div class="pos-cell"><div class="lab">闲置资金（货币基金 511880）</div><div class="val" id="g-p-cash" style="color:var(--down)">—</div></div>
+      <div class="pos-cell"><div class="lab">较上周变动</div><div class="val" id="g-p-delta">—</div></div>
+    </div>
+    <div class="tip" id="g-tip">—</div>
+    <div class="g-cap">跟投方式：黄金可用黄金 ETF（如 518880）或积存金/实物金；闲置资金放货币基金（511880）。每周只在下周一开盘调一次，周中不动。页面金额按整数元显示，实际下单以份额为准。</div>
+  </div>
+</section>
+
+<!-- ④ 回测证据 -->
+<section>
+  <div class="sec-t"><span class="sec-n">④</span>回测证据 · 这套规则长期行不行</div>
+  <div class="card">
+    <div class="bt-note">区间 <b id="g-bt-range">—</b> · 周频共 <b id="g-bt-weeks">—</b> 周 · 每周五收盘算信号、下周一开盘调仓 · 无交易成本 · 闲置资金按 511880 实际收益计息 · 无风险利率 2%</div>
+    <div class="bt-kpis" id="g-kpis"></div>
+    <div class="g-btgrid">
+      <div>
+        <div class="bt-note">净值曲线（期初 ＝ 1）：策略 vs 黄金买入持有</div>
+        <div class="chart" id="g-nav-chart"></div>
+      </div>
+      <div>
+        <div class="bt-note">目标仓位曲线（0% ＝ 空仓持货币基金，100% ＝ 满仓黄金）</div>
+        <div class="chart" id="g-pos-chart"></div>
+      </div>
+    </div>
+    <div class="bt-note" id="g-bt-note">—</div>
+  </div>
+</section>
+
+<!-- ⑤ 规则 / 明细 / 口径 -->
+<section>
+  <div class="sec-t"><span class="sec-n">⑤</span>明细 · 规则 · 口径（想深究再展开）</div>
+
+  <details>
+    <summary><span class="sum-t">最近 12 周信号</span><span class="sum-n">新 → 旧</span></summary>
+    <div class="detail-body">
+      <div class="tbl-wrap"><table id="g-recent-tbl"></table></div>
+    </div>
+  </details>
+
+  <details>
+    <summary>分年收益（首尾年份为不完整年）</summary>
+    <div class="detail-body">
+      <div class="tbl-wrap"><table id="g-annual-tbl"></table></div>
+    </div>
+  </details>
+
+  <details>
+    <summary>规则原文与参数</summary>
+    <div class="detail-body">
+      <ul class="rule">
+        <li><b>信号频率</b>：每周五收盘用当周收盘价计算，<b>下一周一开盘</b>调仓；无阈值缓冲、无最短持有期，每周如实调仓。</li>
+        <li><b>趋势强度</b> S ＝ (MA16 − MA40) / ATR10，其中 MA 是周线收盘均线、ATR10 是最近 10 周真实波幅均值。<b>S ≤ 0</b> 表示短均线在长均线之下，趋势仓位直接归零。</li>
+        <li><b>趋势仓位</b> B ＝ clip(0.75 × S, 0, 1)：S ＝ 0 → 0%（空仓），S ＝ 0.67 → 50%，S ≥ 1.33 → 100%（满仓）。</li>
+        <li><b>波动系数</b> V ＝ min(1, 2.5% / ATR%)：平时为 1，只有当波动率高于 2.5% 时才按比例减仓（只减不加，起风控作用）。</li>
+        <li><b>目标仓位</b> P ＝ B × V，余下 1 − P 全部放货币基金（511880）。</li>
+        <li><b>参数</b>：快线 16 周 / 慢线 40 周 / ATR 10 周 / 斜率 0.75 / 波动目标 2.5% / 无基础仓位（base=0）/ 无阈值（thresh=0）。</li>
+        <li><b>数据源</b>：伦敦金 XAU 周线收盘（新浪 GlobalFuturesService）；闲置资金收益用 511880 实际净值序列。</li>
+      </ul>
+    </div>
+  </details>
+
+  <details>
+    <summary>与常见版本的三点差异（调参说明）</summary>
+    <div class="detail-body">
+      <ul class="rule">
+        <li><b>无基础仓位（base ＝ 0）</b>：常见版本给 0.5 的基础仓位，等于长期半仓黄金。本策略取消基础仓位，均线之下完全空仓、把钱放货币基金。</li>
+        <li><b>无阈值缓冲（thresh ＝ 0）</b>：常见版本设 ±阈值带以减少调仓，但会把部分信号挡在门外；本策略每周如实调仓，用连续仓位本身平滑换手。</li>
+        <li><b>ATR 周期 10 周</b>（常见版本 20 周）：缩短波动率窗口，让风控对近期波动更敏感。</li>
+        <li><b>效果</b>：年化 9.40% / 年化波动 8.4% / 夏普 0.88 / 最大回撤 −12.51% / 平均仓位 38.8% / 累计 5.66 倍（1004 周）。</li>
+      </ul>
+    </div>
+  </details>
+
+  <details>
+    <summary>术语表（黑话翻译）</summary>
+    <div class="detail-body">
+      <div class="gloss">
+        <div class="g"><b>趋势强度 S</b><span>两条均线之间的距离，除以平均波动幅度。正值越大＝上涨越强，≤0＝短均线跌破长均线（趋势走坏），仓位直接归零。</span></div>
+        <div class="g"><b>趋势仓位 B</b><span>把 S 换算成 0~100% 的仓位：S 每 1 个 ATR 对应 75% 仓位，满仓线在 S ＝ 1.33（约 1.33 个 ATR 的均线距离）。</span></div>
+        <div class="g"><b>ATR（真实波幅）</b><span>每周的波动幅度指标（含跳空），ATR% ＝ ATR ÷ 金价，代表「当前波动率有多高」。</span></div>
+        <div class="g"><b>波动系数 V</b><span>波动率高于 2.5% 时按比例缩仓的折扣系数。波动越大越不敢满仓——只减仓、不加仓，避免高波动时杠杆式风险。</span></div>
+        <div class="g"><b>空仓 ≠ 空手</b><span>策略空仓时钱并没有闲着，而是放在货币基金（511880）吃利息，回测里也按真实净值计息。</span></div>
+        <div class="g"><b>次周开盘执行</b><span>周五收盘看到信号，下周一开盘才成交。若改用当周开盘成交，等于「周五收盘看到信号还能回到本周开盘买入」，是前视偏差，会把年化从 9.3% 虚高到 10.7%。</span></div>
+        <div class="g"><b>平均仓位 38.8%</b><span>20 年里该策略平均只有不到四成时间持有黄金，其余时间在货币基金——不是「一直满仓黄金」，风格是趋势跟随＋现金防守。</span></div>
+      </div>
+    </div>
+  </details>
+</section>
+
+<footer>
+  数据来源：伦敦金 XAU 周线（新浪财经）· 货币基金 511880 净值 · 每周六 10:20（北京时间）自动更新 · 回测 <span id="g-foot-range">—</span>（与离线回测报告口径一致，起点为 MA40 预热完成的首个可算周）<br>
+  本页面仅为规则计算结果与回测披露，不构成投资建议。黄金价格受美元、实际利率与避险情绪影响，单边趋势策略在震荡市中会反复空仓与追高，历史绩效不代表未来。
+</footer>
+</div><!-- /gzone -->
+<script>
+(function(){
+  "use strict";
+  var GOLD = /*__GOLD_DATA__*/{};
+  var ok = !!(GOLD && GOLD.latest && GOLD.series && GOLD.series.dates && GOLD.series.dates.length);
+  var inited = false, chartsDrawn = false, navChart = null, posChart = null;
+
+  var fmt = function(x, n){ n = n == null ? 0 : n; var v = Number(x);
+    if (!isFinite(v)) return "—";
+    return v.toLocaleString("zh-CN", {minimumFractionDigits:n, maximumFractionDigits:n}); };
+  var money = function(v){ return fmt(v, 0) + " 元"; };
+  var pp = function(x){ return (x > 0 ? "+" : "") + fmt(x * 100, 1) + " pp"; };
+  var pct = function(x, n){ return (x > 0 ? "+" : "") + fmt(x * 100, n == null ? 1 : n) + "%"; };
+  var sgn = function(x, n){ return (x > 0 ? "+" : "") + fmt(x, n); };
+  var esc = function(s){ return String(s == null ? "" : s).replace(/[&<>"]/g, function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]; }); };
+
+  function zoneOf(p){
+    if (p <= 0.001) return {t:"空仓", c:"off"};
+    if (p >= 0.999) return {t:"满仓", c:"on"};
+    if (p < 0.25)   return {t:"低仓", c:"mid"};
+    if (p < 0.75)   return {t:"中仓", c:"mid"};
+    return {t:"高仓", c:"on"};
+  }
+
+  function render(){
+    var L = GOLD.latest, B = GOLD.backtest || {}, S = GOLD.series, P = GOLD.params || {};
+    var p = Number(L.target_pos || 0);
+    var prevPos = (GOLD.prev && GOLD.prev.pos != null) ? Number(GOLD.prev.pos) : null;
+    var z = zoneOf(p);
+
+    document.getElementById("g-week").textContent = L.week || "—";
+    document.getElementById("g-gen").textContent = GOLD.generated_at_cst ? GOLD.generated_at_cst + "（北京时间）" : "—";
+    document.getElementById("g-pos").textContent = fmt(p * 100, 1) + "%";
+    var st = document.getElementById("g-state");
+    st.textContent = p <= 0.001 ? "空仓 · 持货币基金" : (p >= 0.999 ? "满仓黄金" : z.t + " " + fmt(p * 100, 0) + "%");
+    st.className = "badge " + (p <= 0.001 ? "b-ok" : (p >= 0.999 ? "b-warn" : ""));
+
+    // ① 本周该怎么做
+    var t1, s1;
+    if (p <= 0.001) {
+      t1 = "空仓 · 全部放货币基金";
+      s1 = "趋势强度 S ＝ " + sgn(L.strength, 3) + "（MA16 已在 MA40 下方 " + fmt(Math.abs(L.strength), 2)
+         + " 个 ATR），均线之下趋势仓位归零 → 本周不持有黄金，钱放货币基金（511880）。";
+    } else if (p >= 0.999) {
+      t1 = "满仓黄金 · 100%";
+      s1 = "趋势强度 S ＝ " + sgn(L.strength, 3) + "，已越过满仓线（S ≥ 1.33），且波动率不高 → 本周黄金买满。";
+    } else {
+      t1 = "持有黄金 " + fmt(p * 100, 0) + "% · 余下 " + fmt((1 - p) * 100, 0) + "% 放货币基金";
+      s1 = "趋势强度 S ＝ " + sgn(L.strength, 3) + "（趋势仓位 B ＝ " + fmt(L.pos_trend * 100, 1)
+         + "%）× 波动系数 V ＝ " + fmt(L.pos_vol, 3) + "（ATR% ＝ " + fmt(L.atr_pct * 100, 2) + "%）→ 目标仓位 "
+         + fmt(p * 100, 1) + "%。";
+    }
+    document.getElementById("g-act-title").textContent = t1;
+    document.getElementById("g-act-sub").textContent = s1;
+    document.getElementById("g-act-meta").innerHTML =
+      "数据周（周五收盘）<b>" + esc(L.week) + "</b> · 执行时点 <b>下一周一开盘</b>"
+      + (prevPos == null ? "" : " · 较上周 <b>" + pp(p - prevPos) + "</b>")
+      + " · 当周金价收盘 <b>" + fmt(L.close, 2) + "</b>";
+
+    // ② 信号明细
+    document.getElementById("g-big").innerHTML = fmt(p * 100, 1) + "<small>%</small>"
+      + '<span class="g-zd ' + z.c + '">' + z.t + "</span>";
+    document.getElementById("g-big-sub").textContent =
+      (prevPos == null ? "—" : "较上周 " + pp(p - prevPos)) + " · 其余 " + fmt((1 - p) * 100, 1) + "% 放货币基金";
+    var barPct = Math.max(0, Math.min(100, (Number(L.strength) + 1.33) / 2.66 * 100));
+    document.getElementById("g-strength-ptr").style.left = barPct.toFixed(1) + "%";
+    var rows = [
+      ["趋势强度 S", "(MA16 − MA40) / ATR10", sgn(L.strength, 3)],
+      ["趋势仓位 B", "clip(" + fmt(P.slope == null ? 0.75 : P.slope, 2) + " × S, 0, 1)", fmt(L.pos_trend * 100, 1) + "%"],
+      ["波动系数 V", "min(1, " + fmt((P.target_atr_pct == null ? 0.025 : P.target_atr_pct) * 100, 1) + "% / ATR%)", fmt(L.pos_vol, 3)],
+      ["ATR%" + (P.atr_n ? "（ATR" + P.atr_n + "）" : ""), "ATR ÷ 当周收盘", fmt(L.atr_pct * 100, 2) + "%"],
+      ["MA" + (P.fast || 16), "周线短均线", fmt(L.ma_fast, 2)],
+      ["MA" + (P.slow || 40), "周线长均线", fmt(L.ma_slow, 2)],
+      ["当周金价收盘", "伦敦金 XAU 周线", fmt(L.close, 2)],
+      ["目标黄金仓位 P", "B × V", fmt(p * 100, 1) + "%"]
+    ];
+    document.getElementById("g-rows").innerHTML = rows.map(function(r){
+      return '<div class="g-row"><span class="k">' + esc(r[0]) + "<small>" + esc(r[1]) + "</small></span><b>" + esc(r[2]) + "</b></div>";
+    }).join("");
+
+    // ③ 我的仓位
+    document.getElementById("g-p-pos").textContent = fmt(p * 100, 1) + "%";
+    document.getElementById("g-p-delta").textContent = prevPos == null ? "—" : pp(p - prevPos);
+    refreshCapital();
+    var tip;
+    if (p <= 0.001) tip = "空仓周：不用买黄金，本金全额放货币基金。等哪一周趋势强度 S 转正，再按下周页面给的金额买入。";
+    else if (p >= 0.999) tip = "满仓周：黄金买满，不留现金（生活费、应急金另算）。若下周 S 掉回 0，会提示全部卖出。";
+    else tip = "部分仓位周：先按上表金额买黄金，余下放货币基金；下周若比例变化，按新金额补齐或卖出差额。";
+    document.getElementById("g-tip").textContent = tip;
+
+    // ④ 回测
+    document.getElementById("g-bt-range").textContent = (B.date_min || "—") + " ~ " + (B.date_max || "—");
+    document.getElementById("g-bt-weeks").textContent = fmt(B.weeks, 0);
+    var kpis = [
+      ["年化收益", pct(B["年化"], 2), "var(--up)"],
+      ["年化波动", fmt(B["年化波动"] * 100, 2) + "%", ""],
+      ["夏普比率", fmt(B["夏普"], 2), ""],
+      ["最大回撤", fmt(B["最大回撤"] * 100, 2) + "%", "var(--down)"],
+      ["平均回撤", fmt(B["平均回撤"] * 100, 2) + "%", ""],
+      ["Calmar", fmt(B["Calmar"], 2), ""],
+      ["累计倍数", fmt(B["累计倍数"], 2) + "x", "var(--up)"],
+      ["周胜率", fmt(B["周胜率"] * 100, 1) + "%", ""],
+      ["平均仓位", fmt(B["平均仓位"] * 100, 1) + "%", ""],
+      ["策略波动 / 买入持有波动", fmt(B.年化波动 * 100, 1) + "% / " + fmt(stdOf(S.bh, true), 1) + "%", ""]
+    ];
+    document.getElementById("g-kpis").innerHTML = kpis.map(function(c){
+      return '<div class="bt-cell"><div class="lab">' + esc(c[0]) + '</div><div class="val"' + (c[2] ? ' style="color:' + c[2] + '"' : "") + ">" + esc(c[1]) + "</div></div>";
+    }).join("");
+    document.getElementById("g-bt-note").textContent =
+      "净值曲线在引擎里复算（同一套规则），与绩效摘要的累计倍数逐位对账；" +
+      "口径：次周开盘执行、无交易成本、闲置资金按 511880 实际收益计息、无风险利率 2%。";
+
+    // ⑤ 明细表
+    document.getElementById("g-foot-range").textContent = S.dates[0] + " ~ " + S.dates[S.dates.length - 1];
+    renderRecent();
+    renderAnnual();
+  }
+
+  function refreshCapital(){
+    if (!ok) return;
+    var p = Number(GOLD.latest.target_pos || 0);
+    var cap = Number((document.getElementById("g-capital") || {}).value || 0);
+    if (!isFinite(cap) || cap < 0) cap = 0;
+    var gEl = document.getElementById("g-p-gold");
+    gEl.textContent = money(cap * p);
+    gEl.style.color = p > 0 ? "var(--up)" : "var(--dim)";
+    document.getElementById("g-p-cash").textContent = money(cap * (1 - p));
+  }
+
+  function renderRecent(){
+    var rows = GOLD.recent || [];
+    document.getElementById("g-recent-tbl").innerHTML =
+      "<thead><tr><th>数据周</th><th>金价收盘</th><th>趋势强度 S</th><th>目标仓位</th><th>较上周</th></tr></thead><tbody>" +
+      rows.map(function(r){
+        var col = r.pos > 0 ? "buy" : "sell";
+        return "<tr><td>" + esc(r.week) + "</td><td>" + fmt(r.close, 2) + "</td><td>" + sgn(r.strength, 3)
+          + '</td><td class="' + col + '">' + fmt(r.pos * 100, 1) + "%</td><td>"
+          + (r.delta == null ? "—" : pp(r.delta)) + "</td></tr>";
+      }).join("") + "</tbody>";
+  }
+
+  function renderAnnual(){
+    var rows = GOLD.annual || [];
+    document.getElementById("g-annual-tbl").innerHTML =
+      "<thead><tr><th>年份</th><th>策略收益</th><th>黄金买入持有</th><th>周数</th></tr></thead><tbody>" +
+      rows.map(function(r){
+        return "<tr><td>" + r.year + '</td><td class="' + (r.strat >= 0 ? "buy" : "sell") + '">' + pct(r.strat, 1)
+          + '</td><td class="' + (r.bh >= 0 ? "buy" : "sell") + '">' + pct(r.bh, 1) + "</td><td>" + r.n + "</td></tr>";
+      }).join("") + "</tbody>";
+  }
+
+  function stdOf(arr, annualize){
+    var v = (arr || []).filter(function(x){ return x != null && isFinite(x); });
+    if (v.length < 3) return NaN;
+    var r = [], i;
+    for (i = 1; i < v.length; i++) r.push(v[i] / v[i - 1] - 1);
+    var m = r.reduce(function(a, b){ return a + b; }, 0) / r.length;
+    var s = Math.sqrt(r.reduce(function(a, b){ return a + (b - m) * (b - m); }, 0) / (r.length - 1));
+    return s * (annualize ? Math.sqrt(52) : 1) * 100;
+  }
+
+  function drawCharts(){
+    var S = GOLD.series;
+    var c1 = document.getElementById("g-nav-chart"), c2 = document.getElementById("g-pos-chart");
+    if (typeof echarts === "undefined") {
+      c1.innerHTML = '<div style="padding:16px;color:var(--dim);font-size:13px">图表库加载失败（本地 echarts 未加载），数字指标已在上方显示。</div>';
+      c2.innerHTML = "";
+      return;
+    }
+    var opt = function(yName, fmtY){
+      return {
+        backgroundColor:"transparent",
+        tooltip:{trigger:"axis", confine:true, backgroundColor:"#FFFFFF", borderColor:"#DDE8F4", textStyle:{color:"#16324F", fontSize:12}},
+        grid:{left:56, right:18, top:34, bottom:30, containLabel:true},
+        xAxis:{type:"category", data:S.dates, axisLabel:{color:"#8AA3C0", fontSize:11, hideOverlap:true}, axisLine:{lineStyle:{color:"#DDE8F4"}}},
+        yAxis:{type:"value", scale:true, name:yName, nameTextStyle:{color:"#8AA3C0"}, axisLabel:{color:"#8AA3C0", fontSize:11, formatter:fmtY}, splitLine:{lineStyle:{color:"#EEF4FA"}}}
+      };
+    };
+    if (!navChart) {
+      navChart = echarts.init(c1);
+      var o1 = opt("净值（期初＝1）", function(v){ return v.toFixed(1); });
+      o1.legend = {data:["策略净值","黄金买入持有"], top:0, textStyle:{color:"#5B7BA3", fontSize:12}, itemWidth:14, itemHeight:8};
+      o1.dataZoom = [{type:"inside", start:0, end:100}, {type:"slider", start:0, end:100, height:14, bottom:0, borderColor:"#DDE8F4", backgroundColor:"#F6FAFE", fillerColor:"rgba(43,108,176,0.15)", textStyle:{color:"#8AA3C0", fontSize:10}}];
+      o1.series = [
+        {name:"策略净值", type:"line", data:S.nav, smooth:true, showSymbol:false, lineStyle:{color:"#E0443C", width:2}, itemStyle:{color:"#E0443C"}},
+        {name:"黄金买入持有", type:"line", data:S.bh, smooth:true, showSymbol:false, lineStyle:{color:"#2B6CB0", width:1.5, type:"dashed"}, itemStyle:{color:"#2B6CB0"}}
+      ];
+      navChart.setOption(o1);
+    }
+    if (!posChart) {
+      posChart = echarts.init(c2);
+      var o2 = opt("仓位 %", function(v){ return v.toFixed(0) + "%"; });
+      o2.yAxis.min = 0; o2.yAxis.max = 100; o2.yAxis.scale = false;
+      o2.dataZoom = [{type:"inside", start:0, end:100}];
+      o2.series = [{
+        name:"目标黄金仓位", type:"line", data:S.pos.map(function(v){ return +(v * 100).toFixed(1); }),
+        showSymbol:false, lineStyle:{color:"#D97706", width:1.5}, itemStyle:{color:"#D97706"},
+        areaStyle:{color:"rgba(217,119,6,0.14)"},
+        markLine:{silent:true, symbol:"none", data:[{yAxis:50, lineStyle:{color:"#8AA3C0", type:"dashed", width:1}}], label:{show:false}}
+      }];
+      posChart.setOption(o2);
+    }
+    navChart.resize(); posChart.resize();
+  }
+
+  window.addEventListener("resize", function(){
+    if (navChart) { try { navChart.resize(); } catch(e){} }
+    if (posChart) { try { posChart.resize(); } catch(e){} }
+  });
+
+  window.GoldEngine = {
+    init: function(){
+      if (inited) return;
+      inited = true;
+      if (!ok) {
+        var m = document.getElementById("g-missing");
+        m.style.display = "block";
+        m.innerHTML = "<b>黄金趋势强度数据未打包</b>：仓库里还没有 <b>data/payload/gold.json</b>。"
+          + "先跑 <b>scripts/build_gold_payload.py</b>（依赖 .github/workflows/gold.yml 产出的 data/kline/gold/*.parquet），再重建门户。";
+        return;
+      }
+      render();
+      var inp = document.getElementById("g-capital");
+      if (inp) inp.addEventListener("input", refreshCapital);
+    },
+    show: function(){
+      this.init();
+      if (!ok) return;
+      setTimeout(drawCharts, 40);
+    }
+  };
+})();
+</script>

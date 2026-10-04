@@ -1469,6 +1469,11 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
   <div id="view-weather-bt" class="view" style="display:none">
   <!--__BT_VIEW__-->
   </div><!-- /view-weather-bt -->
+
+  <!-- ===== ETF择时 · 黄金趋势强度（gold_tab.html 由 build_portal.py 注入） ===== -->
+  <div id="view-gold" class="view" style="display:none">
+  <!--__GOLD_VIEW__-->
+  </div><!-- /view-gold -->
   </main>
 </div>
 <div id="mask" class="mask"></div>
@@ -1545,6 +1550,7 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
       {key:"timing-zz500", label:"中证500", children:[
         {key:"timing-zz500-snlv", label:"中证500低波"}
       ]},
+      {key:"timing-gold", label:"黄金趋势强度"},
       {key:"timing-morning", label:"上午快照"}
     ]}
   ];
@@ -1583,6 +1589,7 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
     "timing-hs300": {t:"沪深300 择时", hs300:true},
     "timing-zz500": {t:"中证500 择时", c:"中证500 择时 · 请从左侧展开「中证500」选择子策略。已上线：中证500低波（500SNLV / 930782）跟投仪表盘。"},
     "timing-zz500-snlv": {t:"中证500低波 择时", zz500snlv:true},
+    "timing-gold":   {t:"黄金趋势强度 择时", gold:true},
     "timing-morning":{t:"上午实时快照", morning:true},
     "short":        {t:"短线策略 · 总览", c:"短线策略包含 动量策略（趋势质量轮动）与 量化黑盒（LightGBM 排序选股）。请从左侧目录选择查看。"},
     "short-momentum":{t:"动量策略", qlab:"momentum"},
@@ -1649,7 +1656,7 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
     }
     return "";
   }
-  var PORTAL_VIEWS = ["view-hongli","view-empty","view-sector","view-hs300","view-zz500snlv","view-short","view-shome","view-pick","view-morning","view-weather","view-weather-bt"];
+  var PORTAL_VIEWS = ["view-hongli","view-empty","view-sector","view-hs300","view-zz500snlv","view-short","view-shome","view-pick","view-morning","view-weather","view-weather-bt","view-gold"];
   function showView(id){
     PORTAL_VIEWS.forEach(function(v){
       document.getElementById(v).style.display = (v === id) ? "" : "none";
@@ -1717,6 +1724,10 @@ footer{font-size:12px;color:var(--dim);margin-top:24px;padding-top:12px;border-t
       } else if (Z5 && zbt && zbt.open) {
         window.dispatchEvent(new Event("resize"));
       }
+    } else if (pg.gold) {
+      showView("view-gold");
+      document.title = "黄金趋势强度 · 跟投仪表盘";
+      setTimeout(function(){ if (window.GoldEngine) GoldEngine.show(); }, 80);
     } else if (pg.content) {
       showView("view-hongli");
       document.title = "红利低波 · 跟投仪表盘";
