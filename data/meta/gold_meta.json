@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-10-03T02:39:45Z",
+  "generated_at_utc": "2026-10-10T08:38:57Z",
   "sources": {
     "XAU": "sina GlobalFuturesService.getGlobalFuturesDailyKLine?symbol=XAU",
     "AU0": "sina InnerFuturesNewService.getDailyKLine?symbol=AU0",
@@ -10,8 +10,8 @@
       "name": "XAU",
       "daily_rows": 5185,
       "weekly_rows": 1043,
-      "date_min": "2006-10-03",
-      "date_max": "2026-10-02",
+      "date_min": "2006-10-10",
+      "date_max": "2026-10-09",
       "stale_days": 1,
       "fatal": [],
       "warn": [
@@ -22,11 +22,11 @@
     },
     {
       "name": "AU0",
-      "daily_rows": 4563,
-      "weekly_rows": 959,
+      "daily_rows": 4565,
+      "weekly_rows": 960,
       "date_min": "2008-01-09",
-      "date_max": "2026-09-30",
-      "stale_days": 3,
+      "date_max": "2026-10-09",
+      "stale_days": 1,
       "fatal": [],
       "warn": [
         "4 处超过 10 天的数据缺口（多为节假日停市）"
@@ -35,11 +35,11 @@
     },
     {
       "name": "SH511880",
-      "daily_rows": 3216,
-      "weekly_rows": 679,
+      "daily_rows": 3218,
+      "weekly_rows": 680,
       "date_min": "2013-07-12",
-      "date_max": "2026-09-30",
-      "stale_days": 3,
+      "date_max": "2026-10-09",
+      "stale_days": 1,
       "fatal": [],
       "warn": [
         "4 处超过 10 天的数据缺口（多为节假日停市）"
@@ -48,10 +48,10 @@
     }
   ],
   "rows": {
-    "gold_daily": 12964,
-    "gold_weekly": 2002,
+    "gold_daily": 12968,
+    "gold_weekly": 2003,
     "xau_daily": 5185,
-    "au0_daily": 4563,
-    "cash_daily": 3216
+    "au0_daily": 4565,
+    "cash_daily": 3218
   }
 }
