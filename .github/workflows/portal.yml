@@ -1,6 +1,6 @@
 name: Portal Pipeline (12:00 Beijing)
 
-# 门户流水线：工作日 12:00 开始更新整个页面，14:00 前出网页端结果。
+# 门户流水线：构建页面并双通道发布（HSK 文件托管 + GitHub Pages），再等宿主同步拉到 600177.xyz。
 #   fetch_index(截至 T-1 完整收盘，含大盘天气 5 锚定指数) -> fetch_etf -> fetch_stock
 #   -> fetch_snapshot(11:30) -> build_factors -> gen_payload(hl/hs300/sector/stock/morning)
 #   -> build_weather(weather.json) -> fetch_option_hs300 -> build_hs300_score
@@ -9,19 +9,31 @@ name: Portal Pipeline (12:00 Beijing)
 #   -> 双通道发布：HSK 文件托管 + GitHub Pages
 #   -> 分别 verify 两端 data_date
 #
+# 触发（三条路，都走同一个 job）：
+#   ① workflow_run：mirror 跑完自动链式构建 —— 这一趟才保证用上「当日 mirror 已入库」的数据。
+#      mirror 失败时也照样构建一次（页面照旧数据，好过整天空转）；数据缺口由守卫与次日 mirror 补。
+#   ② schedule：工作日 12:00 兜底。GitHub 实测常延迟 5~7 小时才起跑，所以经常跑在 mirror 之前
+#      （那一趟用的是前一日数据），等 mirror 跑完再由 ① 重建一版，当日数据就补上了。
+#   ③ workflow_dispatch：手工补跑，以及 portal_watchdog.py 守卫发现当天没跑通时的自动重跑。
+#
 # 大盘天气数据口径：
 #   - 天气总览：kline/index/{000001,399001,000300,399006,932000} → weather.json
 #   - 择时回测：同上指数 + 常用标的 hfq → timing_db.json（缺则 fetch 补取）
 # 口径：A股日K 15:00 收盘后才产生完整 bar -> 策略信号基于 T-1 完整收盘；
 # "当天上午结果"= 11:30 实时快照（morning 段，T-1 信号 + 上午实时双轨展示）。
-# 16:35 的 mirror 任务会把今日完整收盘 K 线镜像入库，并重建 weather/timing_db；
-# 本任务增量多为 no-op（幂等），午间再编门户并发布。
+# 16:35 的 mirror 任务会把今日完整收盘 K 线镜像入库并重建 weather/timing_db；
+# 本任务的 fetch 是增量（多为 no-op），重活在 mirror 那边，这里以「编译 + 发布」为主。
 
 on:
   schedule:
     # 北京时间 12:00 = UTC 04:00（GitHub schedule 用 UTC；实测常延迟 5~7 小时才起跑，
     # 故「12:00 前拿 T-1 增量」的前提不成立，重活一律不由本流水线承担）
     - cron: "0 4 * * 1-5"
+  workflow_run:
+    # 名字必须与 mirror.yml 的 name: 逐字一致，改了那边要同步改这里，否则链式触发静默失效。
+    # 不加 conclusion 过滤：mirror 失败也构建一次，页面照旧数据，好过整天空转。
+    workflows: ["Mirror Close Data (16:35 Beijing)"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
