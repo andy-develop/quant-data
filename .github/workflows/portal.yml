@@ -19,8 +19,8 @@ name: Portal Pipeline (12:00 Beijing)
 
 on:
   schedule:
-    # 北京时间 12:00 = UTC 04:00（GitHub schedule 用 UTC；负载高时可能延迟数分钟，
-    # 45min timeout + 幂等增量设计保证不丢数据）
+    # 北京时间 12:00 = UTC 04:00（GitHub schedule 用 UTC；实测常延迟 5~7 小时才起跑，
+    # 故「12:00 前拿 T-1 增量」的前提不成立，重活一律不由本流水线承担）
     - cron: "0 4 * * 1-5"
   workflow_dispatch:
 
@@ -71,10 +71,13 @@ jobs:
           PREFER_TX: "1"
         run: python3 scripts/fetch_etf.py
 
-      - name: Fetch stock daily bars (Tencent, T-1 incremental, non-blocking)
-        # 股票增量主通道是 16:35 mirror；此处兜底补漏（mirror 失败时仍可恢复 T-1）。
-        # 幂等：mirror 已入库时增量区间为空，秒级跳过
-        run: python3 scripts/fetch_stock.py || echo "::warning::股票增量抓取失败，选股段将沿用现有数据"
+      - name: Fetch stock daily bars (raw-only, T-1 incremental, non-blocking)
+        # 股票增量主通道是 16:35 mirror（job 预算 120min）。portal 只跑 qt 批量 raw（约 90 请求/秒级）：
+        # 全市场逐股 hfq 约需 37~64min，实测 2026-10-08 #31 / 2026-10-12 #34 单步跑满 3860s
+        # 撞 job 上限被取消（总 4526s），页面整晚不发布。--raw-only 后本步恒为秒级，hfq 缺口由 mirror 补。
+        timeout-minutes: 6
+        continue-on-error: true
+        run: python3 scripts/fetch_stock.py --raw-only || echo "::warning::股票增量抓取失败，选股段将沿用现有数据"
 
       - name: Fetch morning snapshot (11:30 realtime)
         # 快照失败不阻断整条流水线（morning 段回退到昨日快照，7 天保留）
@@ -172,6 +175,9 @@ jobs:
 
       - name: Publish to HSK file hosting (overwrite)
         # hsk-cli ≥0.7.24 已移除 --resource-id；更新功能常 403，默认新建资源并持久化 URL
+        # 次要镜像，失败不得拖垮主站：2026-10-09 #32 因上传期 tls bad record MAC 使整个 job 失败
+        # → deploy-pages（needs: portal）被跳过，GitHub Pages 同样没发布
+        continue-on-error: true
         working-directory: quant-data
         run: |
           npm install -g @aweray/hsk-cli >/dev/null 2>&1
@@ -244,6 +250,8 @@ jobs:
 
       - name: Verify HSK published page
         # 发布后验证：HSK 线上 app.html 的 PAYLOAD / WEATHER / TIMING_DB / hs300_score 必须与本地一致
+        # 同属次要镜像：校验失败只告警，不阻断主站发布
+        continue-on-error: true
         run: |
           python3 - <<'EOF'
           import json, os, re, urllib.request

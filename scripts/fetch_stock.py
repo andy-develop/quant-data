@@ -21,6 +21,7 @@
 
 用法:
   python3 scripts/fetch_stock.py              # 日常增量（raw 批量 + hfq 逐股）
+  python3 scripts/fetch_stock.py --raw-only   # 只补最后完整日 raw（portal 用；hfq 交给 mirror）
   python3 scripts/fetch_stock.py --days 5     # 强制回看 N 天（补漏/修复，走 fqkline）
   python3 scripts/fetch_stock.py --backfill   # 全量 3 年（首次或分片缺失，走 fqkline）
 """
@@ -259,6 +260,8 @@ def main() -> None:
     ap.add_argument("--backfill", action="store_true", help="全量回看 3 年（忽略现有数据）")
     ap.add_argument("--days", type=int, default=0, help="强制回看 N 天（补漏/修复，>0 时忽略现有数据）")
     ap.add_argument("--limit", type=int, default=0, help="只处理前 N 只股票（沙箱测试/分片重试）")
+    ap.add_argument("--raw-only", action="store_true",
+                    help="只做 qt 批量 raw 最后完整日增量，跳过 fqkline 逐股（hfq 与多日补段由 16:35 mirror 负责）")
     args = ap.parse_args()
     C.ensure_dirs()
 
@@ -286,11 +289,29 @@ def main() -> None:
             return lookback
         return m + pd.Timedelta(days=1)
 
+    # raw-only 判定用交易日历：批量快照只能补「最后完整日」这一根 bar，
+    # 故仅当 (现有 max, end] 之间只有 end 一个交易日（周末/次日、含跨周一的缺口）才走批量。
+    cal = C.read_df(f"{C.META}/trade_calendar.parquet")
+    tdays = sorted(pd.to_datetime(cal["date"]).dt.date) if len(cal) else None
+
+    def _missing_tdays(m, end_d):
+        if tdays is None:
+            return [end_d]
+        return [d for d in tdays if m < d <= end_d]
+
     # 请求归类：raw 只缺最后完整日 → 批量；其余（多日/无记录/强制）→ fqkline
+    # --raw-only：只走批量通道（秒级）。逐股 hfq 全市场约需 37~64min，portal（job 预算 75min）
+    #   曾两次因此撑满被取消（2026-10-08 #31 / 2026-10-12 #34，单步 3860s）→ hfq 交给 mirror。
     batch_codes, fq_jobs = [], []
     for code in alive:
         sym = C.tx_to_symbol(code)
         sr = start_for(raw_max, code)
+        if args.raw_only:
+            m = raw_max.get(code)
+            if m is not None and not pd.isna(m) and not (args.backfill or args.days):
+                if _missing_tdays(m.date(), end.date()) == [end.date()]:
+                    batch_codes.append(code)
+            continue
         if sr <= end:
             if args.backfill or args.days or sr < end:
                 fq_jobs.append((code, sym, sr.strftime("%Y-%m-%d"), end_s, False))
@@ -317,8 +338,11 @@ def main() -> None:
             print(f"[fetch_stock] 批量快照: {len(batch_rows):,}/{len(batch_codes):,} 只取到 {end_s} bar")
         else:
             # qt 被封降级：raw 单日缺口改走 fqkline raw（kline 端点双主机可用）
-            fq_jobs += [(code, C.tx_to_symbol(code), end_s, end_s, False) for code in batch_codes]
-            print(f"[fetch_stock] qt 批量通道被风控，{len(batch_codes):,} 只降级走 fqkline raw")
+            if args.raw_only:
+                print(f"[fetch_stock] qt 批量通道被风控，{len(batch_codes):,} 只跳过（raw-only，当日缺口留给 mirror）")
+            else:
+                fq_jobs += [(code, C.tx_to_symbol(code), end_s, end_s, False) for code in batch_codes]
+                print(f"[fetch_stock] qt 批量通道被风控，{len(batch_codes):,} 只降级走 fqkline raw")
 
     # ---- 通道 B：fqkline（raw 补段 + hfq 全部） ----
     t0 = time.time()
