@@ -1,0 +1,70 @@
+name: Portal Schedule Watchdog
+
+on:
+  schedule:
+    # Beijing 13:15, 16:00, 18:00; catch delayed/missed noon portal schedule.
+    - cron: "15 5 * * 1-5"
+    - cron: "0 8 * * 1-5"
+    - cron: "0 10 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: portal-schedule-watchdog-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  inspect-and-recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check today's portal runs and dispatch at most two recoveries
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const workflowId = "portal.yml";
+            const tz = "Asia/Shanghai";
+            const dayFmt = new Intl.DateTimeFormat("en-CA", {
+              timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit"
+            });
+            const today = dayFmt.format(new Date());
+            const runsResp = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: workflowId,
+              branch: "main",
+              per_page: 100
+            });
+            const todaysRuns = runsResp.data.workflow_runs.filter(run =>
+              dayFmt.format(new Date(run.created_at)) === today
+            );
+            const successful = todaysRuns.find(run =>
+              run.status === "completed" && run.conclusion === "success"
+            );
+            if (successful) {
+              core.notice(`Portal already succeeded today (${today}); run ${successful.id}.`);
+              return;
+            }
+            const active = todaysRuns.find(run =>
+              run.status === "queued" || run.status === "in_progress"
+            );
+            if (active) {
+              core.notice(`Portal run ${active.id} is ${active.status}; do not duplicate it.`);
+              return;
+            }
+            const dispatches = todaysRuns.filter(run => run.event === "workflow_dispatch");
+            if (dispatches.length >= 2) {
+              core.warning(`Portal still has no successful run for ${today}; already dispatched ${dispatches.length} recoveries, cap reached.`);
+              return;
+            }
+            core.warning(`Portal workflow missing/failed for ${today}; dispatching recovery ${dispatches.length + 1}/2.`);
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: workflowId,
+              ref: "main"
+            });
+            core.notice(`Dispatched portal workflow for ${today}. The host will sync the repository at 03:10 Beijing time.`);
