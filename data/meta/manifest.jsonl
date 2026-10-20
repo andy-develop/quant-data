@@ -509,3 +509,12 @@
 {"event": "gen_payload", "at": "2026-10-20 00:41", "hl_last": "2026-10-19", "hs300_last": "2026-10-19", "zz500snlv_last": "2026-10-19"}
 {"event": "build_weather", "at": "2026-10-20 00:41", "indices": ["000001", "000300", "399001", "399006", "932000"], "size_kb": 358.0}
 {"event": "check_health", "at": "2026-10-20 00:41", "errors": [], "warnings": []}
+{"event": "ensure_calendar", "at": "2026-10-20 23:49", "status": "ok", "end": "2029-01-30", "remain_days": 833}
+{"event": "fetch_index", "at": "2026-10-20 23:49", "backfill": false}
+{"event": "fetch_etf", "at": "2026-10-20 23:50"}
+{"event": "fetch_stock", "at": "2026-10-20 23:50", "batch": 5202, "fq": 0, "ok": 5202, "fail": 0, "sec": 0, "end": "2026-10-20"}
+{"event": "fetch_snapshot", "at": "2026-10-20 23:50", "day": "20261020", "etf": 32, "index": 5}
+{"event": "build_factors", "at": "2026-10-20 23:50", "stock_rows": 3606505}
+{"event": "gen_payload", "at": "2026-10-20 23:51", "hl_last": "2026-10-20", "hs300_last": "2026-10-20", "zz500snlv_last": "2026-10-20"}
+{"event": "build_weather", "at": "2026-10-20 23:51", "indices": ["000001", "000300", "399001", "399006", "932000"], "size_kb": 358.0}
+{"event": "check_health", "at": "2026-10-20 23:51", "errors": [], "warnings": []}
