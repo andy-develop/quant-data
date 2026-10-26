@@ -1,27 +1,3 @@
-{"event": "fetch_index", "at": "2026-09-15 17:04", "backfill": false}
-{"event": "fetch_etf", "at": "2026-09-15 17:04"}
-{"event": "fetch_stock", "at": "2026-09-15 17:41", "batch": 5203, "fq": 5227, "ok": 10313, "fail": 117, "sec": 2187, "end": "2026-09-15"}
-{"event": "fetch_snapshot", "at": "2026-09-15 17:41", "day": "20260915", "etf": 32, "index": 5}
-{"event": "build_factors", "at": "2026-09-15 17:41", "stock_rows": 3605634}
-{"event": "gen_payload", "at": "2026-09-15 17:41", "hl_last": "2026-09-14", "hs300_last": "2026-09-14"}
-{"event": "build_weather", "at": "2026-09-15 17:41", "indices": ["000001", "000300", "399001", "399006", "932000"], "size_kb": 825.3}
-{"event": "fetch_index", "at": "2026-09-15 21:49", "backfill": false}
-{"event": "fetch_etf", "at": "2026-09-15 21:49"}
-{"event": "fetch_stock", "at": "2026-09-15 21:52", "batch": 4, "fq": 121, "ok": 4, "fail": 121, "sec": 146, "end": "2026-09-15"}
-{"event": "housekeeping", "at": "2026-09-15 21:52", "data_mb": 184.1}
-{"event": "build_weather", "at": "2026-09-16 08:47", "indices": ["000001", "000300", "399001", "399006", "932000"], "size_kb": 822.9}
-{"event": "fetch_index", "at": "2026-09-16 08:51", "backfill": false}
-{"event": "fetch_etf", "at": "2026-09-16 08:51"}
-{"event": "fetch_stock", "at": "2026-09-16 08:54", "batch": 4, "fq": 121, "ok": 4, "fail": 121, "sec": 145, "end": "2026-09-15"}
-{"event": "housekeeping", "at": "2026-09-16 08:54", "data_mb": 185.0}
-{"event": "build_weather", "at": "2026-09-16 08:54", "indices": ["000001", "000300", "399001", "399006", "932000"], "size_kb": 822.9}
-{"event": "fetch_index", "at": "2026-09-16 09:00", "backfill": false}
-{"event": "fetch_etf", "at": "2026-09-16 09:00"}
-{"event": "fetch_stock", "at": "2026-09-16 09:02", "batch": 4, "fq": 121, "ok": 4, "fail": 121, "sec": 145, "end": "2026-09-15"}
-{"event": "fetch_snapshot", "at": "2026-09-16 09:03", "day": "20260916", "etf": 32, "index": 5}
-{"event": "build_factors", "at": "2026-09-16 09:03", "stock_rows": 3605634}
-{"event": "gen_payload", "at": "2026-09-16 09:03", "hl_last": "2026-09-15", "hs300_last": "2026-09-15"}
-{"event": "build_weather", "at": "2026-09-16 09:03", "indices": ["000001", "000300", "399001", "399006", "932000"], "size_kb": 822.9}
 {"event": "check_health", "at": "2026-09-16 09:29", "errors": [], "warnings": ["cn10y 滞后 7 天，建议尽快刷新"]}
 {"event": "check_health", "at": "2026-09-16 09:35", "errors": [], "warnings": []}
 {"event": "ensure_calendar", "at": "2026-09-16 11:32", "status": "ok", "end": "2026-12-31", "remain_days": 106}
@@ -519,3 +495,9 @@
 {"event": "gen_payload", "at": "2026-10-26 19:17", "hl_last": "2026-10-26", "hs300_last": "2026-10-26", "zz500snlv_last": "2026-10-26"}
 {"event": "build_weather", "at": "2026-10-26 19:17", "indices": ["000001", "000300", "399001", "399006", "932000"], "size_kb": 358.1}
 {"event": "check_health", "at": "2026-10-26 19:17", "errors": [], "warnings": []}
+{"event": "ensure_calendar", "at": "2026-10-26 23:25", "status": "ok", "end": "2029-01-30", "remain_days": 827}
+{"event": "fetch_index", "at": "2026-10-26 23:25", "backfill": false}
+{"event": "fetch_etf", "at": "2026-10-26 23:25"}
+{"event": "housekeeping", "at": "2026-10-27 01:13", "data_mb": 184.5}
+{"event": "build_weather", "at": "2026-10-27 01:13", "indices": ["000001", "000300", "399001", "399006", "932000"], "size_kb": 358.1}
+{"event": "check_health", "at": "2026-10-27 01:13", "errors": [], "warnings": ["股票 hfq 当日覆盖率 0.0% < 90%（WAF/断档）；选股可能残缺，mirror 主通道需关注"]}
