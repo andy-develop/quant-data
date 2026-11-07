@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-10-31T08:32:50Z",
+  "generated_at_utc": "2026-11-07T08:56:05Z",
   "sources": {
     "XAU": "sina GlobalFuturesService.getGlobalFuturesDailyKLine?symbol=XAU",
     "AU0": "sina InnerFuturesNewService.getDailyKLine?symbol=AU0",
@@ -8,10 +8,10 @@
   "checks": [
     {
       "name": "XAU",
-      "daily_rows": 5185,
+      "daily_rows": 5186,
       "weekly_rows": 1043,
-      "date_min": "2006-10-31",
-      "date_max": "2026-10-30",
+      "date_min": "2006-11-07",
+      "date_max": "2026-11-06",
       "stale_days": 1,
       "fatal": [],
       "warn": [
@@ -22,10 +22,10 @@
     },
     {
       "name": "AU0",
-      "daily_rows": 4580,
-      "weekly_rows": 963,
+      "daily_rows": 4585,
+      "weekly_rows": 964,
       "date_min": "2008-01-09",
-      "date_max": "2026-10-30",
+      "date_max": "2026-11-06",
       "stale_days": 1,
       "fatal": [],
       "warn": [
@@ -35,10 +35,10 @@
     },
     {
       "name": "SH511880",
-      "daily_rows": 3233,
-      "weekly_rows": 683,
+      "daily_rows": 3238,
+      "weekly_rows": 684,
       "date_min": "2013-07-12",
-      "date_max": "2026-10-30",
+      "date_max": "2026-11-06",
       "stale_days": 1,
       "fatal": [],
       "warn": [
@@ -48,10 +48,10 @@
     }
   ],
   "rows": {
-    "gold_daily": 12998,
-    "gold_weekly": 2006,
-    "xau_daily": 5185,
-    "au0_daily": 4580,
-    "cash_daily": 3233
+    "gold_daily": 13009,
+    "gold_weekly": 2007,
+    "xau_daily": 5186,
+    "au0_daily": 4585,
+    "cash_daily": 3238
   }
 }
